@@ -75,13 +75,14 @@ reportRouter.get('/:id', (req, res) => {
   res.json({ inspection_report: report });
 });
 
-// Update draft content (title, summary, sections)
+// Update draft content (title, summary, sections) — allowed even after finalizing,
+// so mistakes can be fixed or findings added later. Use the finalize endpoint
+// again afterwards to regenerate the PDF with the changes.
 reportRouter.put('/:id', (req, res) => {
   const report = db.prepare('SELECT * FROM inspection_reports WHERE id = ?').get(req.params.id);
   if (!report) return res.status(404).json({ error: 'Not found' });
   const wo = getWorkOrder(report.work_order_id);
   if (!assertCanWorkOn(req, wo)) return res.status(403).json({ error: 'Not permitted' });
-  if (report.status === 'finalized') return res.status(400).json({ error: 'This report has already been finalized and is read-only' });
 
   const { title, summary, sections } = req.body || {};
   const now = new Date().toISOString();
@@ -91,12 +92,12 @@ reportRouter.put('/:id', (req, res) => {
 });
 
 // Upload photo(s) from device library — field name "photos", multiple allowed
+// Allowed even after finalizing — re-run finalize afterwards to refresh the PDF.
 reportRouter.post('/:id/photos', upload.array('photos', 20), (req, res) => {
   const report = db.prepare('SELECT * FROM inspection_reports WHERE id = ?').get(req.params.id);
   if (!report) return res.status(404).json({ error: 'Not found' });
   const wo = getWorkOrder(report.work_order_id);
   if (!assertCanWorkOn(req, wo)) return res.status(403).json({ error: 'Not permitted' });
-  if (report.status === 'finalized') return res.status(400).json({ error: 'This report has already been finalized' });
 
   let photos = [];
   try { photos = JSON.parse(report.photos || '[]'); } catch (e) { photos = []; }
@@ -134,7 +135,6 @@ reportRouter.delete('/:id/photos/:photoId', (req, res) => {
   if (!report) return res.status(404).json({ error: 'Not found' });
   const wo = getWorkOrder(report.work_order_id);
   if (!assertCanWorkOn(req, wo)) return res.status(403).json({ error: 'Not permitted' });
-  if (report.status === 'finalized') return res.status(400).json({ error: 'This report has already been finalized' });
 
   let photos = [];
   try { photos = JSON.parse(report.photos || '[]'); } catch (e) { photos = []; }
@@ -161,46 +161,69 @@ reportRouter.delete('/:id/photos/:photoId', (req, res) => {
   res.json({ inspection_report: db.prepare('SELECT * FROM inspection_reports WHERE id = ?').get(req.params.id) });
 });
 
-// Finalize — generates the branded PDF, attaches it to the work order, and starts the 3-day quote SLA timer
+// Finalize (or re-finalize after an edit) — generates/regenerates the branded PDF.
+// The FIRST finalize attaches the PDF and starts the 3-day quote SLA timer.
+// Re-finalizing after later edits just refreshes the PDF — it never resets the
+// SLA clock or moves the work order status backwards.
 reportRouter.post('/:id/finalize', async (req, res) => {
   const report = db.prepare('SELECT * FROM inspection_reports WHERE id = ?').get(req.params.id);
   if (!report) return res.status(404).json({ error: 'Not found' });
   const wo = getWorkOrder(report.work_order_id);
   if (!assertCanWorkOn(req, wo)) return res.status(403).json({ error: 'Not permitted' });
-  if (report.status === 'finalized') return res.status(400).json({ error: 'Already finalized' });
 
+  const isFirstFinalize = report.status !== 'finalized';
   const now = new Date().toISOString();
   const inspector = db.prepare('SELECT * FROM users WHERE id = ?').get(report.created_by);
   try { fs.mkdirSync(PDFS_DIR, { recursive: true }); } catch (e) {}
   const pdfPath = path.join(PDFS_DIR, `${report.id}.pdf`);
 
+  // Keep the original inspection date on the PDF when just refreshing it later.
+  const reportForPdf = { ...report, finalized_at: isFirstFinalize ? now : (report.finalized_at || now) };
+
   try {
-    await generateInspectionPdf({ db, report: { ...report, finalized_at: now }, workOrder: wo, inspector, outputPath: pdfPath });
+    await generateInspectionPdf({ db, report: reportForPdf, workOrder: wo, inspector, outputPath: pdfPath });
   } catch (e) {
     console.error('PDF generation failed', e);
     return res.status(500).json({ error: 'Failed to generate PDF report' });
   }
 
-  const slaHoursRow = db.prepare("SELECT value FROM settings WHERE key = 'quote_sla_hours'").get();
-  const slaHours = parseInt((slaHoursRow && slaHoursRow.value) || '72', 10);
-  const quoteDueAt = new Date(Date.now() + slaHours * 60 * 60 * 1000).toISOString();
+  if (isFirstFinalize) {
+    db.prepare('UPDATE inspection_reports SET status = ?, finalized_at = ?, pdf_path = ?, updated_at = ? WHERE id = ?')
+      .run('finalized', now, pdfPath, now, report.id);
 
-  db.prepare('UPDATE inspection_reports SET status = ?, finalized_at = ?, pdf_path = ?, updated_at = ? WHERE id = ?')
-    .run('finalized', now, pdfPath, now, report.id);
+    const slaHoursRow = db.prepare("SELECT value FROM settings WHERE key = 'quote_sla_hours'").get();
+    const slaHours = parseInt((slaHoursRow && slaHoursRow.value) || '72', 10);
+    const quoteDueAt = new Date(Date.now() + slaHours * 60 * 60 * 1000).toISOString();
 
-  db.prepare('UPDATE work_orders SET status = ?, inspection_submitted_at = ?, quote_due_at = ?, updated_at = ? WHERE id = ?')
-    .run('inspection_submitted', now, quoteDueAt, now, wo.id);
+    db.prepare('UPDATE work_orders SET status = ?, inspection_submitted_at = ?, quote_due_at = ?, updated_at = ? WHERE id = ?')
+      .run('inspection_submitted', now, quoteDueAt, now, wo.id);
 
-  db.prepare('INSERT INTO work_order_activity (id,work_order_id,user_id,message,created_at) VALUES (?,?,?,?,?)')
-    .run(uuid(), wo.id, req.user.id, `Inspection report finalized by ${req.user.name}. Quote due within ${slaHours} hours.`, now);
+    db.prepare('INSERT INTO work_order_activity (id,work_order_id,user_id,message,created_at) VALUES (?,?,?,?,?)')
+      .run(uuid(), wo.id, req.user.id, `Inspection report finalized by ${req.user.name}. Quote due within ${slaHours} hours.`, now);
 
-  const staff = db.prepare("SELECT id FROM users WHERE role IN ('admin','operational') AND active = 1").all();
-  const notifyStmt = db.prepare('INSERT INTO notifications (id,user_id,message,link,read,created_at) VALUES (?,?,?,?,0,?)');
-  const msg = `${req.user.name} submitted the inspection report for ${wo.reference} — quote due in ${slaHours}h`;
-  staff.forEach(s => {
-    notifyStmt.run(uuid(), s.id, msg, `#/work-orders/${wo.id}`, now);
-    sendPushToUser(s.id, { title: 'Inspection report ready', body: msg, link: `#/work-orders/${wo.id}` }).catch(() => {});
-  });
+    const staff = db.prepare("SELECT id FROM users WHERE role IN ('admin','operational') AND active = 1").all();
+    const notifyStmt = db.prepare('INSERT INTO notifications (id,user_id,message,link,read,created_at) VALUES (?,?,?,?,0,?)');
+    const msg = `${req.user.name} submitted the inspection report for ${wo.reference} — quote due in ${slaHours}h`;
+    staff.forEach(s => {
+      notifyStmt.run(uuid(), s.id, msg, `#/work-orders/${wo.id}`, now);
+      sendPushToUser(s.id, { title: 'Inspection report ready', body: msg, link: `#/work-orders/${wo.id}` }).catch(() => {});
+    });
+  } else {
+    // Just refresh the PDF file — leave the SLA timer and work order status untouched.
+    db.prepare('UPDATE inspection_reports SET pdf_path = ?, updated_at = ? WHERE id = ?')
+      .run(pdfPath, now, report.id);
+
+    db.prepare('INSERT INTO work_order_activity (id,work_order_id,user_id,message,created_at) VALUES (?,?,?,?,?)')
+      .run(uuid(), wo.id, req.user.id, `${req.user.name} updated the inspection report and refreshed the PDF.`, now);
+
+    const staff = db.prepare("SELECT id FROM users WHERE role IN ('admin','operational') AND active = 1").all();
+    const notifyStmt = db.prepare('INSERT INTO notifications (id,user_id,message,link,read,created_at) VALUES (?,?,?,?,0,?)');
+    const msg = `${req.user.name} updated the inspection report for ${wo.reference}`;
+    staff.forEach(s => {
+      notifyStmt.run(uuid(), s.id, msg, `#/work-orders/${wo.id}`, now);
+      sendPushToUser(s.id, { title: 'Inspection report updated', body: msg, link: `#/work-orders/${wo.id}` }).catch(() => {});
+    });
+  }
 
   res.json({
     inspection_report: db.prepare('SELECT * FROM inspection_reports WHERE id = ?').get(report.id),

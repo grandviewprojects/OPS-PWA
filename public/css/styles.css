@@ -211,6 +211,8 @@ main.content { flex: 1; padding: 16px; max-width: 1100px; margin: 0 auto; width:
 .photo-thumb img { width: 100%; height: 100px; object-fit: cover; display: block; }
 .photo-thumb input { width: 100%; border: none; border-top: 1px solid var(--border); padding: 4px 6px; font-size: 0.72em; }
 .photo-thumb .remove-photo { position: absolute; top: 4px; right: 4px; background: rgba(0,0,0,0.6); color: white; border: none; border-radius: 50%; width: 22px; height: 22px; font-size: 0.8em; }
+.photo-thumb .download-photo { position: absolute; top: 4px; left: 4px; background: rgba(0,0,0,0.6); color: white; border: none; border-radius: 50%; width: 22px; height: 22px; font-size: 0.8em; display: flex; align-items: center; justify-content: center; text-decoration: none; line-height: 1; }
+.photo-thumb .download-photo:hover { background: rgba(0,0,0,0.85); }
 
 /* ---------- Letterhead preview in report ---------- */
 .letterhead { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid var(--brand); padding-bottom: 12px; margin-bottom: 16px; }

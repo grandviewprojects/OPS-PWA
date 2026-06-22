@@ -238,7 +238,7 @@
       </div>
       <p class="muted">${report.status === 'finalized' ? `Finalized ${App.fmtDateTime(report.finalized_at)}` : 'In progress — open the editor to add findings and photos.'}</p>
       <div class="flex">
-        <button class="btn btn-primary btn-sm" id="openReportBtn">${report.status === 'finalized' ? 'View report' : 'Continue editing'}</button>
+        <button class="btn btn-primary btn-sm" id="openReportBtn">${report.status === 'finalized' ? 'Open report' : 'Continue editing'}</button>
         ${report.status === 'finalized' ? `<a class="btn btn-sm" href="/api/inspection-reports/${report.id}/pdf?token=${encodeURIComponent(API.token())}" id="dlBtn">⬇ Download PDF</a>` : ''}
       </div>
     `;
@@ -265,7 +265,7 @@
     const view = document.getElementById('view');
     const data = await API.get(`/api/inspection-reports/${id}`);
     const report = data.inspection_report;
-    const readonly = report.status === 'finalized';
+    const wasFinalized = report.status === 'finalized'; // editing is always allowed now — this only changes which buttons show
     let sections = [];
     let photos = [];
     try { sections = JSON.parse(report.sections || '[]'); } catch (e) {}
@@ -286,25 +286,28 @@
           </div>
         </div>
         <h2 style="margin-top:0">Site Inspection Report</h2>
-        ${readonly ? `<p class="muted">This report was finalized on ${App.fmtDateTime(report.finalized_at)} and is read-only.</p>` : '<p class="muted">Fill in your findings below, attach photos, then finalize to generate the branded PDF and send it to the work order.</p>'}
+        ${wasFinalized
+          ? `<p class="muted">Finalized ${App.fmtDateTime(report.finalized_at)}. You can still edit this report — click "Update &amp; Regenerate PDF" below to refresh the downloadable PDF with your changes.</p>`
+          : '<p class="muted">Fill in your findings below, attach photos, then finalize to generate the branded PDF and send it to the work order.</p>'}
 
-        <div class="field"><label>Report title</label><input id="titleInput" value="${esc(report.title || '')}" ${readonly ? 'disabled' : ''}></div>
-        <div class="field"><label>Summary</label><textarea id="summaryInput" ${readonly ? 'disabled' : ''}>${esc(report.summary || '')}</textarea></div>
+        <div class="field"><label>Report title</label><input id="titleInput" value="${esc(report.title || '')}"></div>
+        <div class="field"><label>Summary</label><textarea id="summaryInput">${esc(report.summary || '')}</textarea></div>
 
         <h3>Findings sections</h3>
         <div id="sectionsWrap"></div>
-        ${!readonly ? `<button class="btn btn-sm" id="addSectionBtn">+ Add finding</button>` : ''}
+        <button class="btn btn-sm" id="addSectionBtn">+ Add finding</button>
 
         <h3 class="mt16">Overview Photos <span class="muted" style="font-size:.7em;font-weight:400">(general site photos not tied to a specific finding)</span></h3>
-        ${!readonly ? `<input type="file" id="photoInput" accept="image/*" multiple capture="environment">
-        <p class="muted" style="font-size:.8em">Select photos from your camera or photo library.</p>` : ''}
+        <input type="file" id="photoInput" accept="image/*" multiple capture="environment">
+        <p class="muted" style="font-size:.8em">Select photos from your camera or photo library.</p>
         <div class="photo-grid" id="photoGrid"></div>
 
-        ${!readonly ? `
         <hr class="sep">
-        <button class="btn btn-primary" id="saveDraftBtn">Save draft</button>
-        <button class="btn btn-danger" id="finalizeBtn">✅ Finalize report</button>
-        ` : `<hr class="sep"><a class="btn btn-primary" href="#" id="dlBtn2">⬇ Download PDF</a>`}
+        <div class="flex" style="flex-wrap:wrap;gap:10px">
+          <button class="btn btn-primary" id="saveDraftBtn">Save changes</button>
+          <button class="btn ${wasFinalized ? '' : 'btn-danger'}" id="finalizeBtn">${wasFinalized ? '🔄 Update & Regenerate PDF' : '✅ Finalize report'}</button>
+          ${wasFinalized ? `<button class="btn btn-sm" id="dlBtn2">⬇ Download PDF</button>` : ''}
+        </div>
       </div>
     `;
 
@@ -316,70 +319,67 @@
       grid.innerHTML = secPhotos.map(p => `
         <div class="photo-thumb">
           <img src="${esc(p.url)}" alt="">
-          <input data-sec-cap="${esc(p.id)}" data-sec-id="${esc(sectionId)}" value="${esc(p.caption || '')}" placeholder="Caption" ${readonly ? 'disabled' : ''}>
-          ${!readonly ? `<button class="remove-photo" data-remove-sec-photo="${esc(p.id)}">&times;</button>` : ''}
+          <a class="download-photo" href="${esc(p.url)}" download title="Download photo">⬇</a>
+          <input data-sec-cap="${esc(p.id)}" data-sec-id="${esc(sectionId)}" value="${esc(p.caption || '')}" placeholder="Caption">
+          <button class="remove-photo" data-remove-sec-photo="${esc(p.id)}">&times;</button>
         </div>
       `).join('') || `<p class="muted" style="font-size:.8em">No photos for this finding yet.</p>`;
-      if (!readonly) {
-        grid.querySelectorAll('[data-sec-cap]').forEach(inp => inp.addEventListener('change', async (e) => {
-          const sec = sections.find(s => s.id === e.target.dataset.secId);
-          const p = sec && sec.photos.find(x => x.id === e.target.dataset.secCap);
-          if (p) p.caption = e.target.value;
-          await saveDraft(false);
-        }));
-        grid.querySelectorAll('[data-remove-sec-photo]').forEach(btn => btn.addEventListener('click', async (e) => {
-          try {
-            await API.del(`/api/inspection-reports/${id}/photos/${e.target.dataset.removeSecPhoto}`);
-            if (section) section.photos = section.photos.filter(p => p.id !== e.target.dataset.removeSecPhoto);
-            renderSectionPhotos(sectionId);
-            toast('Photo removed', 'success');
-          } catch (err) { toast(err.message, 'error'); }
-        }));
-      }
+      grid.querySelectorAll('[data-sec-cap]').forEach(inp => inp.addEventListener('change', async (e) => {
+        const sec = sections.find(s => s.id === e.target.dataset.secId);
+        const p = sec && sec.photos.find(x => x.id === e.target.dataset.secCap);
+        if (p) p.caption = e.target.value;
+        await saveDraft(false);
+      }));
+      grid.querySelectorAll('[data-remove-sec-photo]').forEach(btn => btn.addEventListener('click', async (e) => {
+        try {
+          await API.del(`/api/inspection-reports/${id}/photos/${e.target.dataset.removeSecPhoto}`);
+          if (section) section.photos = section.photos.filter(p => p.id !== e.target.dataset.removeSecPhoto);
+          renderSectionPhotos(sectionId);
+          toast('Photo removed', 'success');
+        } catch (err) { toast(err.message, 'error'); }
+      }));
     }
 
     function renderSections() {
       const wrap = document.getElementById('sectionsWrap');
       wrap.innerHTML = sections.map((s, i) => `
         <div class="section-block">
-          <div class="field"><label>Heading</label><input data-sec="${i}" data-f="heading" value="${esc(s.heading || '')}" ${readonly ? 'disabled' : ''}></div>
-          <div class="field"><label>Notes</label><textarea data-sec="${i}" data-f="notes" ${readonly ? 'disabled' : ''}>${esc(s.notes || '')}</textarea></div>
+          <div class="field"><label>Heading</label><input data-sec="${i}" data-f="heading" value="${esc(s.heading || '')}"></div>
+          <div class="field"><label>Notes</label><textarea data-sec="${i}" data-f="notes">${esc(s.notes || '')}</textarea></div>
           <label style="display:block;font-size:.8em;font-weight:600;color:var(--muted);margin-bottom:5px">Photos for this finding</label>
-          ${!readonly ? `<input type="file" data-sec-photo-input="${esc(s.id)}" accept="image/*" multiple capture="environment">` : ''}
+          <input type="file" data-sec-photo-input="${esc(s.id)}" accept="image/*" multiple capture="environment">
           <div class="photo-grid" id="secPhotos-${esc(s.id)}" style="margin-top:8px"></div>
-          ${!readonly ? `<button class="btn btn-sm btn-danger mt8" data-remove-sec="${i}">Remove finding</button>` : ''}
+          <button class="btn btn-sm btn-danger mt8" data-remove-sec="${i}">Remove finding</button>
         </div>
       `).join('') || `<p class="muted">No findings yet — click "+ Add finding" below to start.</p>`;
 
       sections.forEach(s => renderSectionPhotos(s.id));
 
-      if (!readonly) {
-        wrap.querySelectorAll('[data-sec]').forEach(inp => inp.addEventListener('input', (e) => {
-          sections[+e.target.dataset.sec][e.target.dataset.f] = e.target.value;
-        }));
-        wrap.querySelectorAll('[data-remove-sec]').forEach(btn => btn.addEventListener('click', (e) => {
-          sections.splice(+e.target.dataset.removeSec, 1); renderSections();
-        }));
-        wrap.querySelectorAll('[data-sec-photo-input]').forEach(inp => inp.addEventListener('change', async (e) => {
-          const files = Array.from(e.target.files || []);
-          if (!files.length) return;
-          const sectionId = e.target.dataset.secPhotoInput;
-          const fd = new FormData();
-          files.forEach(f => fd.append('photos', f));
-          fd.append('section_id', sectionId);
-          toast('Uploading photo(s)…');
-          try {
-            const res = await API.post(`/api/inspection-reports/${id}/photos`, fd, true);
-            const freshSections = JSON.parse(res.inspection_report.sections);
-            const updated = freshSections.find(s => s.id === sectionId);
-            const local = sections.find(s => s.id === sectionId);
-            if (local && updated) local.photos = updated.photos;
-            renderSectionPhotos(sectionId);
-            toast('Photo(s) added to finding', 'success');
-          } catch (err) { toast(err.message, 'error'); }
-          e.target.value = '';
-        }));
-      }
+      wrap.querySelectorAll('[data-sec]').forEach(inp => inp.addEventListener('input', (e) => {
+        sections[+e.target.dataset.sec][e.target.dataset.f] = e.target.value;
+      }));
+      wrap.querySelectorAll('[data-remove-sec]').forEach(btn => btn.addEventListener('click', (e) => {
+        sections.splice(+e.target.dataset.removeSec, 1); renderSections();
+      }));
+      wrap.querySelectorAll('[data-sec-photo-input]').forEach(inp => inp.addEventListener('change', async (e) => {
+        const files = Array.from(e.target.files || []);
+        if (!files.length) return;
+        const sectionId = e.target.dataset.secPhotoInput;
+        const fd = new FormData();
+        files.forEach(f => fd.append('photos', f));
+        fd.append('section_id', sectionId);
+        toast('Uploading photo(s)…');
+        try {
+          const res = await API.post(`/api/inspection-reports/${id}/photos`, fd, true);
+          const freshSections = JSON.parse(res.inspection_report.sections);
+          const updated = freshSections.find(s => s.id === sectionId);
+          const local = sections.find(s => s.id === sectionId);
+          if (local && updated) local.photos = updated.photos;
+          renderSectionPhotos(sectionId);
+          toast('Photo(s) added to finding', 'success');
+        } catch (err) { toast(err.message, 'error'); }
+        e.target.value = '';
+      }));
     }
 
     function renderPhotos() {
@@ -387,81 +387,83 @@
       grid.innerHTML = photos.map(p => `
         <div class="photo-thumb">
           <img src="${esc(p.url)}" alt="">
-          <input data-cap="${esc(p.id)}" value="${esc(p.caption || '')}" placeholder="Caption" ${readonly ? 'disabled' : ''}>
-          ${!readonly ? `<button class="remove-photo" data-remove-photo="${esc(p.id)}">&times;</button>` : ''}
+          <a class="download-photo" href="${esc(p.url)}" download title="Download photo">⬇</a>
+          <input data-cap="${esc(p.id)}" value="${esc(p.caption || '')}" placeholder="Caption">
+          <button class="remove-photo" data-remove-photo="${esc(p.id)}">&times;</button>
         </div>
       `).join('') || `<p class="muted">No photos yet.</p>`;
-      if (!readonly) {
-        grid.querySelectorAll('[data-cap]').forEach(inp => inp.addEventListener('change', async (e) => {
-          const p = photos.find(x => x.id === e.target.dataset.cap);
-          if (p) p.caption = e.target.value;
-          await saveDraft(false);
-        }));
-        grid.querySelectorAll('[data-remove-photo]').forEach(btn => btn.addEventListener('click', async (e) => {
-          try {
-            await API.del(`/api/inspection-reports/${id}/photos/${e.target.dataset.removePhoto}`);
-            photos = photos.filter(p => p.id !== e.target.dataset.removePhoto);
-            renderPhotos();
-            toast('Photo removed', 'success');
-          } catch (err) { toast(err.message, 'error'); }
-        }));
-      }
+      grid.querySelectorAll('[data-cap]').forEach(inp => inp.addEventListener('change', async (e) => {
+        const p = photos.find(x => x.id === e.target.dataset.cap);
+        if (p) p.caption = e.target.value;
+        await saveDraft(false);
+      }));
+      grid.querySelectorAll('[data-remove-photo]').forEach(btn => btn.addEventListener('click', async (e) => {
+        try {
+          await API.del(`/api/inspection-reports/${id}/photos/${e.target.dataset.removePhoto}`);
+          photos = photos.filter(p => p.id !== e.target.dataset.removePhoto);
+          renderPhotos();
+          toast('Photo removed', 'success');
+        } catch (err) { toast(err.message, 'error'); }
+      }));
     }
 
     renderSections();
     renderPhotos();
 
-    if (!readonly) {
-      document.getElementById('addSectionBtn').addEventListener('click', () => { sections.push({ id: genId(), heading: '', notes: '', photos: [] }); renderSections(); });
+    document.getElementById('addSectionBtn').addEventListener('click', () => { sections.push({ id: genId(), heading: '', notes: '', photos: [] }); renderSections(); });
 
-      document.getElementById('photoInput').addEventListener('change', async (e) => {
-        const files = Array.from(e.target.files || []);
-        if (!files.length) return;
-        const fd = new FormData();
-        files.forEach(f => fd.append('photos', f));
-        toast('Uploading photo(s)…');
-        try {
-          const res = await API.post(`/api/inspection-reports/${id}/photos`, fd, true);
-          photos = JSON.parse(res.inspection_report.photos);
-          renderPhotos();
-          toast('Photo(s) added', 'success');
-        } catch (err) { toast(err.message, 'error'); }
-        e.target.value = '';
-      });
+    document.getElementById('photoInput').addEventListener('change', async (e) => {
+      const files = Array.from(e.target.files || []);
+      if (!files.length) return;
+      const fd = new FormData();
+      files.forEach(f => fd.append('photos', f));
+      toast('Uploading photo(s)…');
+      try {
+        const res = await API.post(`/api/inspection-reports/${id}/photos`, fd, true);
+        photos = JSON.parse(res.inspection_report.photos);
+        renderPhotos();
+        toast('Photo(s) added', 'success');
+      } catch (err) { toast(err.message, 'error'); }
+      e.target.value = '';
+    });
 
-      async function saveDraft(showToast = true) {
-        try {
-          await API.put(`/api/inspection-reports/${id}`, {
-            title: document.getElementById('titleInput').value,
-            summary: document.getElementById('summaryInput').value,
-            sections
-          });
-          if (showToast) toast('Draft saved', 'success');
-        } catch (err) { toast(err.message, 'error'); }
-      }
+    async function saveDraft(showToast = true) {
+      try {
+        await API.put(`/api/inspection-reports/${id}`, {
+          title: document.getElementById('titleInput').value,
+          summary: document.getElementById('summaryInput').value,
+          sections
+        });
+        if (showToast) toast('Changes saved', 'success');
+      } catch (err) { toast(err.message, 'error'); }
+    }
 
-      document.getElementById('saveDraftBtn').addEventListener('click', () => saveDraft(true));
+    document.getElementById('saveDraftBtn').addEventListener('click', () => saveDraft(true));
 
-      document.getElementById('finalizeBtn').addEventListener('click', () => {
-        openModal('Finalize Inspection Report', `
-          <p>Once finalized, this report becomes <strong>read-only</strong> and a branded PDF will be generated and attached to the work order.</p>
-          <p>This also starts the <strong>quote SLA timer</strong> for the operations team.</p>
-          <div class="modal-actions"><button class="btn" data-close-modal>Cancel</button><button class="btn btn-danger" id="confirmFinalize">Finalize now</button></div>
-        `, (body) => {
-          body.querySelector('[data-close-modal]').addEventListener('click', closeModal);
-          body.querySelector('#confirmFinalize').addEventListener('click', async () => {
-            try {
-              await saveDraft(false);
-              await API.post(`/api/inspection-reports/${id}/finalize`, {});
-              closeModal();
-              toast('Report finalized — PDF generated', 'success');
-              navigate(`/work-orders/${report.work_order_id}`);
-            } catch (err) { toast(err.message, 'error'); }
-          });
+    document.getElementById('finalizeBtn').addEventListener('click', () => {
+      const title = wasFinalized ? 'Update & Regenerate PDF' : 'Finalize Inspection Report';
+      const body = wasFinalized
+        ? `<p>This will save your latest changes and regenerate the PDF attached to this work order.</p>
+           <p class="muted">The quote SLA timer will <strong>not</strong> be affected — it stays based on when the report was first finalized.</p>
+           <div class="modal-actions"><button class="btn" data-close-modal>Cancel</button><button class="btn btn-primary" id="confirmFinalize">Update PDF now</button></div>`
+        : `<p>This generates a branded PDF and attaches it to the work order.</p>
+           <p>This also starts the <strong>quote SLA timer</strong> for the operations team. You can still come back and edit this report later if needed.</p>
+           <div class="modal-actions"><button class="btn" data-close-modal>Cancel</button><button class="btn btn-danger" id="confirmFinalize">Finalize now</button></div>`;
+      openModal(title, body, (el) => {
+        el.querySelector('[data-close-modal]').addEventListener('click', closeModal);
+        el.querySelector('#confirmFinalize').addEventListener('click', async () => {
+          try {
+            await saveDraft(false);
+            await API.post(`/api/inspection-reports/${id}/finalize`, {});
+            closeModal();
+            toast(wasFinalized ? 'PDF updated' : 'Report finalized — PDF generated', 'success');
+            navigate(`/work-orders/${report.work_order_id}`);
+          } catch (err) { toast(err.message, 'error'); }
         });
       });
-    } else {
-      document.getElementById('dlBtn2').addEventListener('click', (e) => { e.preventDefault(); downloadPdf(id, ''); });
-    }
+    });
+
+    const dl2 = document.getElementById('dlBtn2');
+    if (dl2) dl2.addEventListener('click', (e) => { e.preventDefault(); downloadPdf(id, ''); });
   });
 })();
