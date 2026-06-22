@@ -13,6 +13,7 @@ const portalRoutes = require('./routes/portal');
 const settingsRoutes = require('./routes/settings');
 const dashboardRoutes = require('./routes/dashboard');
 const pushRoutes = require('./routes/push');
+const aiRoutes = require('./routes/ai');
 const { photosDir, logoDir } = require('./paths');
 
 const app = express();
@@ -37,6 +38,7 @@ app.use('/api/portal', portalRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/push', pushRoutes);
+app.use('/api/ai', aiRoutes);
 
 app.get('/api/health', (req, res) => res.json({ ok: true, time: new Date().toISOString() }));
 

@@ -110,6 +110,34 @@ password immediately. From there:
 
 ---
 
+---
+
+## 5a. AI features (optional — dispatch suggestions & weekly reports)
+
+The app includes two AI-powered features for admin/operational accounts, both visible under
+the **Reports** tab and on each work order's assignment panel:
+
+- **✨ Suggest assignee** — on any work order, suggests which onsite team member to assign
+  based on current workload and calendar availability. You always review and click "Save
+  assignment" yourself — it never assigns automatically.
+- **Weekly management summaries** — generates a plain-English summary (highlights, concerns,
+  recommendations) from your own work order data for any date range, downloadable as a PDF,
+  with history kept for past reports.
+
+These are switched off by default and the rest of the app works completely normally without
+them. To turn them on:
+
+1. Get an API key from **console.anthropic.com** (pay-as-you-go, typically a few cents per
+   summary/suggestion at normal usage)
+2. Add it as an environment variable called `ANTHROPIC_API_KEY` the same way you added
+   `JWT_SECRET` and `DATA_DIR` (on Render: Environment tab → Add Environment Variable)
+3. Redeploy — no code changes needed, it's detected automatically
+
+If the key isn't set, the **Reports** page still shows all your real stats — it just skips the
+AI-written narrative and tells you it's not configured yet, instead of breaking.
+
+---
+
 ## 5. Deploying it for real (so your team can use it on their phones)
 
 Any host that can run a long-lived Node.js process works: a small VPS

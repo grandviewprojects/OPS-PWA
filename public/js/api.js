@@ -18,6 +18,7 @@ const API = (() => {
     if (!res.ok) {
       const err = new Error((data && data.error) || ('Request failed: ' + res.status));
       err.status = res.status;
+      err.data = data; // full response body, for routes that send extra fallback data alongside an error
       throw err;
     }
     return data;

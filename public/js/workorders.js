@@ -139,7 +139,11 @@
           <p><strong>Assigned to:</strong> ${wo.assignee_name ? esc(wo.assignee_name) : '<span class="muted">Unassigned</span>'}</p>
           ${isStaff ? `
             ${teamUsers.length === 0 ? `<p class="muted" style="font-size:.85em">No onsite team members yet — <a href="#/team">create one in Team</a> first, then come back to assign this job.</p>` : ''}
-            <div class="field"><label>Reassign</label><select id="assignSelect"><option value="">Unassigned</option>${teamUsers.map(t => `<option value="${t.id}" ${t.id === wo.assigned_to ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</select></div>
+            <div class="field">
+              <label class="flex-between" style="margin-bottom:5px">Reassign <button class="btn btn-sm" id="suggestAssigneeBtn" type="button" style="padding:3px 8px;font-size:.75em">✨ Suggest</button></label>
+              <select id="assignSelect"><option value="">Unassigned</option>${teamUsers.map(t => `<option value="${t.id}" ${t.id === wo.assigned_to ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</select>
+            </div>
+            <div id="suggestionPanel"></div>
             <div class="field"><label>Scheduled date/time</label><input type="datetime-local" id="scheduledInput" value="${wo.scheduled_at ? wo.scheduled_at.slice(0,16) : ''}"></div>
             <button class="btn btn-primary btn-sm" id="saveAssignBtn">Save assignment</button>
           ` : ''}
@@ -172,6 +176,26 @@
           await API.put(`/api/work-orders/${id}`, { assigned_to, scheduled_at: schedRaw ? new Date(schedRaw).toISOString() : null });
           toast('Assignment updated — calendar synced', 'success'); App.render();
         } catch (e) { toast(e.message, 'error'); }
+      });
+      const suggestBtn = document.getElementById('suggestAssigneeBtn');
+      if (suggestBtn) suggestBtn.addEventListener('click', async () => {
+        const panel = document.getElementById('suggestionPanel');
+        panel.innerHTML = `<p class="muted" style="font-size:.85em"><span class="spinner" style="width:12px;height:12px;border-width:2px;display:inline-block;vertical-align:middle"></span> Thinking…</p>`;
+        try {
+          const res = await API.post('/api/ai/suggest-assignee', { work_order_id: id });
+          const sug = res.suggestion;
+          panel.innerHTML = `<div class="privacy-note" style="background:var(--brand-light);margin-bottom:10px">
+            <strong>✨ AI suggests: ${esc(sug.name)}</strong><br>
+            <span class="muted">${esc(sug.reasoning)}</span><br>
+            <button class="btn btn-sm btn-primary mt8" id="useSuggestionBtn">Use this suggestion</button>
+          </div>`;
+          document.getElementById('useSuggestionBtn').addEventListener('click', () => {
+            document.getElementById('assignSelect').value = sug.user_id;
+            panel.innerHTML = '';
+          });
+        } catch (e) {
+          panel.innerHTML = `<p class="muted" style="font-size:.82em">${esc(e.message)}</p>`;
+        }
       });
     }
     document.getElementById('statusSelect').addEventListener('change', async (e) => {

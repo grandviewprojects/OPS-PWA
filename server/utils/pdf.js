@@ -90,6 +90,56 @@ function generateInspectionPdf({ db, report, workOrder, inspector, outputPath })
     doc.moveDown(1);
   }
 
+  // ---- Helper: draw an "Issue" block — thumbnail(s) on the left, title + notes on the right,
+  // with a rule above it, matching the classic inspection-report list layout.
+  function renderIssueBlock(finding, index) {
+    const leftColWidth = 130;
+    const colGap = 20;
+    const rightColX = doc.page.margins.left + leftColWidth + colGap;
+    const rightColWidth = pageWidth - leftColWidth - colGap;
+    const photos = Array.isArray(finding.photos) ? finding.photos : [];
+    const title = `Issue ${index + 1}${finding.heading ? ': ' + finding.heading : ''}`;
+
+    // Estimate how tall this block will be so we can decide on a page break BEFORE drawing
+    // anything (avoids splitting a photo from its text across two pages).
+    doc.font('Helvetica-Bold').fontSize(12);
+    const titleHeight = doc.heightOfString(title, { width: rightColWidth });
+    doc.font('Helvetica').fontSize(10);
+    const notesHeight = finding.notes ? doc.heightOfString(finding.notes, { width: rightColWidth }) : 0;
+    const rightHeight = titleHeight + 6 + notesHeight;
+    const leftHeight = photos.length * 126;
+    const blockHeight = 16 + Math.max(rightHeight, leftHeight) + 16;
+
+    if (doc.y + blockHeight > doc.page.height - doc.page.margins.bottom) doc.addPage();
+
+    const blockTop = doc.y;
+    doc.moveTo(doc.page.margins.left, blockTop).lineTo(doc.page.margins.left + pageWidth, blockTop)
+      .lineWidth(1.5).strokeColor(brandColor).stroke();
+
+    const contentTop = blockTop + 14;
+
+    // Left column — stacked photo thumbnail(s)
+    let leftY = contentTop;
+    photos.forEach((p) => {
+      try {
+        if (fs.existsSync(p.path)) {
+          doc.image(p.path, doc.page.margins.left, leftY, { fit: [leftColWidth, 120] });
+        }
+      } catch (e) { /* skip broken image */ }
+      leftY += 126;
+    });
+
+    // Right column — title + description
+    doc.font('Helvetica-Bold').fontSize(12).fillColor('#111').text(title, rightColX, contentTop, { width: rightColWidth });
+    if (finding.notes) {
+      doc.moveDown(0.3);
+      doc.font('Helvetica').fontSize(10).fillColor('#333').text(finding.notes, rightColX, doc.y, { width: rightColWidth });
+    }
+
+    doc.y = Math.max(leftY, doc.y) + 16;
+    doc.x = doc.page.margins.left;
+  }
+
   // ---- Helper: draw a 2-column photo grid starting at the current cursor position ----
   function renderPhotoGrid(photos) {
     if (!photos || !photos.length) return;
@@ -116,20 +166,14 @@ function generateInspectionPdf({ db, report, workOrder, inspector, outputPath })
     doc.x = doc.page.margins.left;
   }
 
-  // ---- Sections (each finding shows its own photos right underneath it) ----
+  // ---- Issues / findings list ----
   let sections = [];
   try { sections = JSON.parse(report.sections || '[]'); } catch (e) { sections = []; }
-  sections.forEach((s, i) => {
-    if (doc.y > doc.page.height - doc.page.margins.bottom - 100) doc.addPage();
-    doc.font('Helvetica-Bold').fontSize(12).fillColor('#111').text(`${i + 1}. ${safe(s.heading)}`);
-    doc.font('Helvetica').fontSize(10).fillColor('#333').text(safe(s.notes), { width: pageWidth });
+  if (sections.length) {
+    doc.font('Helvetica-Bold').fontSize(13).fillColor('#111').text(`${sections.length} Issue${sections.length === 1 ? '' : 's'} Identified`);
     doc.moveDown(0.5);
-    if (Array.isArray(s.photos) && s.photos.length) {
-      if (doc.y > doc.page.height - doc.page.margins.bottom - 200) doc.addPage();
-      renderPhotoGrid(s.photos);
-    }
-    doc.moveDown(0.5);
-  });
+  }
+  sections.forEach((s, i) => renderIssueBlock(s, i));
 
   // ---- General / overview photos (not tied to a specific finding) ----
   let photos = [];

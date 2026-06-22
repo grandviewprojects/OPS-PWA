@@ -9,6 +9,7 @@ const APP_SHELL = [
   '/js/calendar.js',
   '/js/workorders.js',
   '/js/team.js',
+  '/js/reports.js',
   '/manifest.json'
 ];
 

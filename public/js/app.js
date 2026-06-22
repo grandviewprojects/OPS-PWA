@@ -237,6 +237,7 @@ const App = (() => {
       { href: '#/work-orders', label: 'Work Orders', match: '/work-orders' },
     ];
     if (u.role === 'admin' || u.role === 'operational') tabs.push({ href: '#/team', label: 'Team', match: '/team' });
+    if (u.role === 'admin' || u.role === 'operational') tabs.push({ href: '#/reports', label: 'Reports', match: '/reports' });
     if (u.role === 'admin') tabs.push({ href: '#/settings', label: 'Settings', match: '/settings' });
 
     document.getElementById('app').innerHTML = `
