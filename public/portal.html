@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Request Service</title>
+<link rel="stylesheet" href="/css/styles.css">
+<style>
+  body { background: var(--bg); }
+  .portal-wrap { max-width: 560px; margin: 0 auto; padding: 24px 16px 60px; }
+  .portal-header { text-align: center; margin-bottom: 20px; }
+  .portal-header img { max-height: 56px; margin-bottom: 8px; }
+  .success-box { text-align: center; padding: 40px 20px; }
+  .success-box .big { font-size: 3em; }
+</style>
+</head>
+<body>
+<div class="portal-wrap">
+  <div class="portal-header" id="portalHeader">
+    <h1 id="companyName">Request Service</h1>
+    <p class="muted">Tell us about the work you need done and our team will be in touch.</p>
+  </div>
+
+  <div class="card" id="formCard">
+    <form id="portalForm">
+      <div class="field"><label>What do you need help with? *</label><input name="title" required placeholder="e.g. Roof leak inspection"></div>
+      <div class="field"><label>Details</label><textarea name="description" placeholder="Describe the issue, any access instructions, etc."></textarea></div>
+      <div class="field"><label>Your name / company *</label><input name="client_name" required></div>
+      <div class="form-row">
+        <div class="field"><label>Email</label><input type="email" name="client_email"></div>
+        <div class="field"><label>Phone</label><input name="client_phone"></div>
+      </div>
+      <div class="field"><label>Site address *</label><input name="site_address" required placeholder="Where should our team go?"></div>
+      <div class="field"><label>Urgency</label>
+        <select name="priority">
+          <option value="low">Low — no rush</option>
+          <option value="medium" selected>Medium — within the week</option>
+          <option value="high">High — within 48 hours</option>
+          <option value="urgent">Urgent — as soon as possible</option>
+        </select>
+      </div>
+      <button class="btn btn-primary btn-block" type="submit">Submit request</button>
+    </form>
+  </div>
+</div>
+
+<script src="/js/api.js"></script>
+<script src="/js/portal.js"></script>
+</body>
+</html>

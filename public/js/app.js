@@ -1,0 +1,382 @@
+// public/js/app.js
+const App = (() => {
+  const state = { user: null, notifications: [], settings: {} };
+
+  // ---------- Toast ----------
+  function toast(message, type = '') {
+    let wrap = document.querySelector('.toast-wrap');
+    if (!wrap) { wrap = document.createElement('div'); wrap.className = 'toast-wrap'; document.body.appendChild(wrap); }
+    const el = document.createElement('div');
+    el.className = 'toast ' + type;
+    el.textContent = message;
+    wrap.appendChild(el);
+    setTimeout(() => el.remove(), 4000);
+  }
+
+  function esc(s) {
+    if (s === null || s === undefined) return '';
+    return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  function initials(name) {
+    if (!name) return '?';
+    return name.trim().split(/\s+/).slice(0, 2).map(p => p[0].toUpperCase()).join('');
+  }
+
+  function fmtDate(iso, opts) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return d.toLocaleDateString(undefined, opts || { day: '2-digit', month: 'short', year: 'numeric' });
+  }
+  function fmtDateTime(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return d.toLocaleString(undefined, { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+  }
+  function statusLabel(s) { return (s || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()); }
+
+  function slaInfo(workOrder) {
+    if (workOrder.status !== 'inspection_submitted' || !workOrder.quote_due_at) return null;
+    const due = new Date(workOrder.quote_due_at).getTime();
+    const now = Date.now();
+    const diffMs = due - now;
+    const hrs = Math.round(diffMs / 3600000);
+    if (diffMs < 0) {
+      return { cls: 'sla-overdue', label: `Overdue by ${Math.abs(hrs)}h — quote needed now` };
+    } else if (hrs <= 24) {
+      return { cls: 'sla-warning', label: `Due in ${hrs}h — send quote soon` };
+    }
+    return { cls: 'sla-ok', label: `Quote due in ${Math.round(hrs / 24)}d ${hrs % 24}h` };
+  }
+
+  // ---------- Modal ----------
+  function openModal(title, bodyHtml, onMount) {
+    closeModal();
+    const backdrop = document.createElement('div');
+    backdrop.className = 'modal-backdrop';
+    backdrop.id = 'activeModal';
+    backdrop.innerHTML = `<div class="modal">
+      <button class="modal-close" data-close-modal>&times;</button>
+      <h2>${esc(title)}</h2>
+      <div class="modal-body">${bodyHtml}</div>
+    </div>`;
+    backdrop.addEventListener('click', (e) => { if (e.target === backdrop) closeModal(); });
+    backdrop.querySelector('[data-close-modal]').addEventListener('click', closeModal);
+    document.body.appendChild(backdrop);
+    if (onMount) onMount(backdrop.querySelector('.modal-body'));
+  }
+  function closeModal() {
+    const m = document.getElementById('activeModal');
+    if (m) m.remove();
+  }
+
+  // ---------- Router ----------
+  const routes = [];
+  function route(pattern, handler) { routes.push({ pattern, handler }); }
+  function navigate(hash) { location.hash = hash; }
+
+  async function render() {
+    const hash = location.hash.replace(/^#/, '') || '/dashboard';
+    const [pathPart] = hash.split('?');
+    const segments = pathPart.split('/').filter(Boolean);
+
+    if (!state.user) {
+      renderLogin();
+      return;
+    }
+
+    for (const r of routes) {
+      const m = matchRoute(r.pattern, segments);
+      if (m) {
+        await renderShell(pathPart);
+        try {
+          await r.handler(m);
+        } catch (e) {
+          if (e.status === 401) return logout();
+          document.getElementById('view').innerHTML = `<div class="card"><p class="error-box" style="color:var(--danger)">${esc(e.message)}</p></div>`;
+        }
+        return;
+      }
+    }
+    navigate('/dashboard');
+  }
+
+  function matchRoute(pattern, segments) {
+    const pSegs = pattern.split('/').filter(Boolean);
+    if (pSegs.length !== segments.length) return null;
+    const params = {};
+    for (let i = 0; i < pSegs.length; i++) {
+      if (pSegs[i].startsWith(':')) params[pSegs[i].slice(1)] = decodeURIComponent(segments[i]);
+      else if (pSegs[i] !== segments[i]) return null;
+    }
+    return params;
+  }
+
+  // ---------- Auth ----------
+  function renderLogin() {
+    document.getElementById('app').innerHTML = `
+    <div class="login-screen">
+      <form class="login-card" id="loginForm">
+        <h1>🛠️ Onsite Ops</h1>
+        <p class="sub">Sign in to your team account</p>
+        <div id="loginError"></div>
+        <div class="field"><label>Email</label><input type="email" name="email" required autocomplete="username"></div>
+        <div class="field"><label>Password</label><input type="password" name="password" required autocomplete="current-password"></div>
+        <button class="btn btn-primary btn-block" type="submit">Sign in</button>
+        <p class="hint">Need a request handled externally? Use the <a href="/portal" target="_blank">public request portal</a> instead — no login required.</p>
+      </form>
+    </div>`;
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      try {
+        const res = await API.post('/api/auth/login', { email: fd.get('email'), password: fd.get('password') });
+        API.setToken(res.token);
+        state.user = res.user;
+        await afterLogin();
+      } catch (err) {
+        document.getElementById('loginError').innerHTML = `<div class="error-box">${esc(err.message)}</div>`;
+      }
+    });
+  }
+
+  async function afterLogin() {
+    await loadNotifications();
+    try { state.settings = (await API.get('/api/settings')).settings; } catch (e) {}
+    setupPushNotifications();
+    if (state.user.must_change_password) navigate('/account?force=1');
+    else render();
+  }
+
+  function logout() {
+    API.setToken(null);
+    state.user = null;
+    render();
+  }
+
+  async function tryRestoreSession() {
+    if (!API.token()) return;
+    try {
+      const res = await API.get('/api/auth/me');
+      state.user = res.user;
+      await loadNotifications();
+      try { state.settings = (await API.get('/api/settings')).settings; } catch (e) {}
+      setupPushNotifications();
+    } catch (e) {
+      API.setToken(null);
+    }
+  }
+
+  async function loadNotifications() {
+    try { state.notifications = (await API.get('/api/dashboard/notifications')).notifications; } catch (e) {}
+  }
+
+  // ---------- Push notifications (real phone/desktop notifications) ----------
+  function urlBase64ToUint8Array(base64String) {
+    const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const rawData = atob(base64);
+    return Uint8Array.from([...rawData].map((c) => c.charCodeAt(0)));
+  }
+
+  async function subscribeToPush() {
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const { public_key } = await API.get('/api/push/public-key');
+      if (!public_key) return;
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) {
+        sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(public_key)
+        });
+      }
+      await API.post('/api/push/subscribe', { subscription: sub.toJSON ? sub.toJSON() : sub });
+    } catch (e) { /* push not available/blocked — silently skip, in-app notifications still work */ }
+  }
+
+  function setupPushNotifications() {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) return;
+    if (Notification.permission === 'granted') {
+      subscribeToPush();
+    } else if (Notification.permission === 'default' && !sessionStorage.getItem('push_banner_dismissed')) {
+      showPushBanner();
+    }
+  }
+
+  function showPushBanner() {
+    if (document.getElementById('pushBanner')) return;
+    const bar = document.createElement('div');
+    bar.id = 'pushBanner';
+    bar.style.cssText = 'position:sticky;top:0;z-index:60;background:#111827;color:white;padding:10px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:0.88em';
+    bar.innerHTML = `<span>📱 Turn on notifications to get alerted about new work orders and updates instantly.</span>
+      <span style="display:flex;gap:8px;flex-shrink:0">
+        <button id="pushEnableBtn" style="background:white;color:#111827;border:none;padding:6px 12px;border-radius:6px;font-weight:600;cursor:pointer">Enable</button>
+        <button id="pushDismissBtn" style="background:none;color:white;border:1px solid rgba(255,255,255,.4);padding:6px 12px;border-radius:6px;cursor:pointer">Not now</button>
+      </span>`;
+    document.body.prepend(bar);
+    document.getElementById('pushEnableBtn').addEventListener('click', async () => {
+      const perm = await Notification.requestPermission();
+      bar.remove();
+      if (perm === 'granted') { await subscribeToPush(); toast('Notifications enabled', 'success'); }
+    });
+    document.getElementById('pushDismissBtn').addEventListener('click', () => {
+      sessionStorage.setItem('push_banner_dismissed', '1');
+      bar.remove();
+    });
+  }
+
+  // ---------- Shell (top bar + tabs) ----------
+  async function renderShell(currentPath) {
+    const u = state.user;
+    const unread = state.notifications.filter(n => !n.read).length;
+
+    const tabs = [
+      { href: '#/dashboard', label: 'Dashboard', match: '/dashboard' },
+      { href: '#/calendar', label: 'Calendar', match: '/calendar' },
+      { href: '#/work-orders', label: 'Work Orders', match: '/work-orders' },
+    ];
+    if (u.role === 'admin' || u.role === 'operational') tabs.push({ href: '#/team', label: 'Team', match: '/team' });
+    if (u.role === 'admin') tabs.push({ href: '#/settings', label: 'Settings', match: '/settings' });
+
+    document.getElementById('app').innerHTML = `
+      <header class="topbar">
+        <div class="brand">${state.settings.company_logo ? `<img src="/uploads/logo/${esc((state.settings.company_logo||'').split('/').pop())}">` : '🛠️'} <span>${esc(state.settings.company_name || 'Onsite Ops')}</span></div>
+        <div class="actions">
+          <button class="icon-btn" id="notifBtn" title="Notifications">🔔${unread ? '<span class="badge-dot"></span>' : ''}</button>
+          <a href="#/account" class="avatar" title="${esc(u.name)}" style="background:${esc(u.color || '#2563eb')}">${initials(u.name)}</a>
+        </div>
+      </header>
+      <nav class="tabbar">
+        ${tabs.map(t => `<a href="${t.href}" class="${currentPath.startsWith(t.match) ? 'active' : ''}">${t.label}</a>`).join('')}
+      </nav>
+      <main class="content" id="view"><div class="card"><div class="flex"><div class="spinner"></div> Loading…</div></div></main>
+    `;
+    document.getElementById('notifBtn').addEventListener('click', showNotificationsPanel);
+  }
+
+  function showNotificationsPanel() {
+    const html = state.notifications.length
+      ? state.notifications.map(n => `
+        <div class="list-item" data-notif="${n.id}" data-link="${esc(n.link || '')}" style="${n.read ? 'opacity:.6' : ''}">
+          <div><div>${esc(n.message)}</div><div class="meta">${fmtDateTime(n.created_at)}</div></div>
+        </div>`).join('')
+      : `<div class="empty-state">No notifications yet.</div>`;
+    openModal('Notifications', `<div>${html}</div><div class="modal-actions"><button class="btn btn-sm" id="markAllRead">Mark all read</button></div>`, (body) => {
+      body.querySelectorAll('[data-notif]').forEach(el => el.addEventListener('click', async () => {
+        await API.put(`/api/dashboard/notifications/${el.dataset.notif}/read`);
+        const link = el.dataset.link;
+        closeModal();
+        if (link) navigate(link.replace(/^#/, ''));
+        await loadNotifications();
+      }));
+      document.getElementById('markAllRead').addEventListener('click', async () => {
+        await API.put('/api/dashboard/notifications/read-all');
+        await loadNotifications();
+        closeModal();
+      });
+    });
+  }
+
+  // ---------- Dashboard ----------
+  route('/dashboard', async () => {
+    const data = await API.get('/api/dashboard');
+    const view = document.getElementById('view');
+
+    if (data.role === 'onsite') {
+      view.innerHTML = `
+        <div class="section-title"><h2>My upcoming work</h2></div>
+        <div id="myOrders"></div>
+        <div class="section-title mt20"><h2>Upcoming on my calendar</h2><a href="#/calendar" class="btn btn-sm">Open calendar</a></div>
+        <div class="card">${data.upcoming_events.length ? data.upcoming_events.map(ev => `
+          <div class="list-item"><div><div class="title">${esc(ev.title)}</div><div class="meta">${fmtDateTime(ev.start_at)}</div></div></div>
+        `).join('') : '<div class="empty-state">Nothing scheduled yet.</div>'}</div>
+      `;
+      const ordersEl = document.getElementById('myOrders');
+      ordersEl.innerHTML = data.my_work_orders.length ? data.my_work_orders.map(wo => woListItem(wo)).join('') : `<div class="card empty-state">🎉 No active work orders assigned to you.</div>`;
+      attachWoClicks(ordersEl);
+      return;
+    }
+
+    const counts = {}; data.status_counts.forEach(c => counts[c.status] = c.c);
+    view.innerHTML = `
+      <div class="grid grid-4">
+        <div class="card stat-card"><div class="num">${counts.new || 0}</div><div class="label">New Requests</div></div>
+        <div class="card stat-card"><div class="num">${(data.unassigned_work_orders || []).length}</div><div class="label">Unassigned</div></div>
+        <div class="card stat-card"><div class="num">${(counts.inspection_submitted || 0)}</div><div class="label">Awaiting Quote</div></div>
+        <div class="card stat-card" style="${data.overdue_quotes.length ? 'border-color:var(--danger);background:var(--danger-light)' : ''}"><div class="num" style="${data.overdue_quotes.length ? 'color:var(--danger)' : ''}">${data.overdue_quotes.length}</div><div class="label">Overdue Quotes</div></div>
+      </div>
+
+      ${data.overdue_quotes.length ? `
+      <div class="section-title"><h2 style="color:var(--danger)">⏰ Overdue quotes — act now</h2></div>
+      <div class="card">${data.overdue_quotes.map(wo => woListItem(wo)).join('')}</div>` : ''}
+
+      <div class="section-title"><h2>Awaiting quote (within SLA)</h2></div>
+      <div class="card" id="dueSoon">${data.due_soon_quotes.length ? data.due_soon_quotes.map(wo => woListItem(wo)).join('') : '<div class="empty-state">Nothing awaiting a quote right now.</div>'}</div>
+
+      <div class="section-title"><h2>New requests from the portal</h2><a href="#/work-orders" class="btn btn-sm">View all work orders</a></div>
+      <div class="card" id="newReqs">${data.new_requests.length ? data.new_requests.map(wo => woListItem(wo)).join('') : '<div class="empty-state">No new requests.</div>'}</div>
+
+      <div class="section-title"><h2>Unassigned work orders</h2></div>
+      <div class="card" id="unassigned">${data.unassigned_work_orders.length ? data.unassigned_work_orders.map(wo => woListItem(wo)).join('') : '<div class="empty-state">Everything is assigned. 👍</div>'}</div>
+    `;
+    ['dueSoon', 'newReqs', 'unassigned'].forEach(id => attachWoClicks(document.getElementById(id)));
+  });
+
+  function woListItem(wo) {
+    const sla = slaInfo(wo);
+    return `<div class="list-item" data-wo="${wo.id}">
+      <div>
+        <div class="title">${esc(wo.reference)} — ${esc(wo.title)}</div>
+        <div class="meta">${esc(wo.client_name || '')}${wo.site_address ? ' · ' + esc(wo.site_address) : ''}${wo.assignee_name ? ' · 👤 ' + esc(wo.assignee_name) : ''}</div>
+      </div>
+      <div class="text-right">
+        <div><span class="badge badge-${wo.status}">${statusLabel(wo.status)}</span></div>
+        ${sla ? `<div class="mt8"><span class="sla-chip ${sla.cls}">${sla.label}</span></div>` : ''}
+      </div>
+    </div>`;
+  }
+  function attachWoClicks(container) {
+    if (!container) return;
+    container.querySelectorAll('[data-wo]').forEach(el => el.addEventListener('click', () => navigate(`/work-orders/${el.dataset.wo}`)));
+  }
+
+  // ---------- Account / change password ----------
+  route('/account', async () => {
+    const forced = location.hash.includes('force=1');
+    const view = document.getElementById('view');
+    view.innerHTML = `
+      <div class="card" style="max-width:480px">
+        <h2>My Account</h2>
+        ${forced ? `<div class="error-box" style="background:var(--warning-light);color:var(--warning);padding:10px;border-radius:8px;margin-bottom:12px">You're using a temporary password. Please set a new one to continue.</div>` : ''}
+        <p class="muted">${esc(state.user.name)} · ${esc(state.user.email)}</p>
+        <form id="pwForm">
+          <div class="field"><label>Current password</label><input type="password" name="current_password" required></div>
+          <div class="field"><label>New password (min 8 characters)</label><input type="password" name="new_password" required minlength="8"></div>
+          <button class="btn btn-primary" type="submit">Update password</button>
+        </form>
+        <hr class="sep">
+        <button class="btn" id="logoutBtn">Log out</button>
+      </div>
+    `;
+    document.getElementById('pwForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      try {
+        await API.put('/api/auth/change-password', { current_password: fd.get('current_password'), new_password: fd.get('new_password') });
+        toast('Password updated', 'success');
+        state.user.must_change_password = false;
+        navigate('/dashboard');
+      } catch (err) { toast(err.message, 'error'); }
+    });
+    document.getElementById('logoutBtn').addEventListener('click', logout);
+  });
+
+  window.addEventListener('hashchange', render);
+  window.addEventListener('DOMContentLoaded', async () => {
+    await tryRestoreSession();
+    render();
+  });
+
+  return { state, route, navigate, render, toast, esc, initials, fmtDate, fmtDateTime, statusLabel, slaInfo, openModal, closeModal, logout, loadNotifications };
+})();
