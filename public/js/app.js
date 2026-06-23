@@ -250,13 +250,20 @@ const App = (() => {
     const u = state.user;
     const unread = state.notifications.filter(n => !n.read).length;
 
-    const tabs = [
-      { href: '#/dashboard', label: 'Dashboard', match: '/dashboard' },
-      { href: '#/calendar', label: 'Calendar', match: '/calendar' },
-      { href: '#/work-orders', label: 'Work Orders', match: '/work-orders' },
-    ];
-    if (u.role === 'admin' || u.role === 'operational') tabs.push({ href: '#/team', label: 'Team', match: '/team' });
-    if (u.role === 'admin' || u.role === 'operational') tabs.push({ href: '#/reports', label: 'Reports', match: '/reports' });
+    const tabs = [];
+    if (u.role === 'marketing') {
+      tabs.push({ href: '#/dashboard', label: 'Dashboard', match: '/dashboard' });
+      tabs.push({ href: '#/leads', label: 'Leads', match: '/leads' });
+      tabs.push({ href: '#/tasks', label: 'Tasks', match: '/tasks' });
+    } else {
+      tabs.push({ href: '#/dashboard', label: 'Dashboard', match: '/dashboard' });
+      tabs.push({ href: '#/calendar', label: 'Calendar', match: '/calendar' });
+      tabs.push({ href: '#/work-orders', label: 'Work Orders', match: '/work-orders' });
+      if (u.role === 'admin' || u.role === 'operational') tabs.push({ href: '#/team', label: 'Team', match: '/team' });
+      if (u.role === 'admin' || u.role === 'operational') tabs.push({ href: '#/reports', label: 'Reports', match: '/reports' });
+      if (u.role === 'admin' || u.role === 'operational') tabs.push({ href: '#/tasks', label: 'Tasks', match: '/tasks' });
+    }
+    if (u.role === 'admin') tabs.push({ href: '#/leads', label: 'Leads', match: '/leads' });
     if (u.role === 'admin') tabs.push({ href: '#/settings', label: 'Settings', match: '/settings' });
 
     document.getElementById('app').innerHTML = `
@@ -300,8 +307,39 @@ const App = (() => {
 
   // ---------- Dashboard ----------
   route('/dashboard', async () => {
-    const data = await API.get('/api/dashboard');
     const view = document.getElementById('view');
+
+    if (state.user.role === 'marketing') {
+      const [{ leads }, { tasks }] = await Promise.all([API.get('/api/leads'), API.get('/api/tasks')]);
+      const stageCounts = {};
+      ['new', 'contacted', 'qualified', 'proposal', 'won', 'lost'].forEach((s) => stageCounts[s] = 0);
+      leads.forEach((l) => { stageCounts[l.status] = (stageCounts[l.status] || 0) + 1; });
+      const openTasks = tasks.filter((t) => t.status !== 'completed' && t.status !== 'cancelled');
+      const recentLeads = [...leads].sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at)).slice(0, 6);
+
+      view.innerHTML = `
+        <div class="section-title"><h2>🎯 Sales Overview</h2><a href="#/leads" class="btn btn-sm">Open pipeline</a></div>
+        <div class="grid grid-4">
+          <div class="card stat-card"><div class="num">${stageCounts.new}</div><div class="label">New leads</div></div>
+          <div class="card stat-card"><div class="num">${stageCounts.contacted + stageCounts.qualified}</div><div class="label">In progress</div></div>
+          <div class="card stat-card"><div class="num">${stageCounts.proposal}</div><div class="label">Proposal sent</div></div>
+          <div class="card stat-card" style="border-color:var(--success);background:var(--success-light)"><div class="num" style="color:var(--success)">${stageCounts.won}</div><div class="label">Won</div></div>
+        </div>
+
+        <div class="section-title mt20"><h2>My open tasks</h2><a href="#/tasks" class="btn btn-sm">View all</a></div>
+        <div class="card">${openTasks.length ? openTasks.slice(0, 5).map((t) => `
+          <div class="list-item" style="cursor:default"><div><div class="title">${esc(t.title)}</div><div class="meta">${t.due_at ? 'Due ' + fmtDateTime(t.due_at) : 'No deadline'}</div></div></div>
+        `).join('') : '<div class="empty-state">No open tasks. 🎉</div>'}</div>
+
+        <div class="section-title mt20"><h2>Recently updated leads</h2></div>
+        <div class="card">${recentLeads.length ? recentLeads.map((l) => `
+          <div class="list-item" style="cursor:default"><div><div class="title">${esc(l.name)}</div><div class="meta">${esc(l.company || '')}${l.assignee_name ? ' · ' + esc(l.assignee_name) : ''}</div></div><span class="badge" style="background:#eee">${l.status}</span></div>
+        `).join('') : '<div class="empty-state">No leads yet — add your first one.</div>'}</div>
+      `;
+      return;
+    }
+
+    const data = await API.get('/api/dashboard');
 
     if (data.role === 'onsite') {
       view.innerHTML = `
@@ -362,23 +400,22 @@ const App = (() => {
   }
 
   // ---------- Account / change password ----------
+  // Notification categories are shared with the admin-only Settings page,
+  // which is where notification preferences now live (per-profile, admin-managed).
   const NOTIF_CATEGORIES = [
-    { key: 'assigned_work_order', label: 'A new work order is assigned to me', hint: 'Always logged either way — this just controls whether your phone buzzes.' },
-    { key: 'calendar_event_added', label: 'Someone adds an event to my calendar', hint: 'Always logged either way — this just controls whether your phone buzzes.' },
-    { key: 'inspection_report_ready', label: 'An inspection report is submitted or updated', hint: 'For admin/operational — always logged either way.' },
-    { key: 'new_portal_request', label: 'A new request comes in from the client portal', hint: 'For admin/operational — always logged either way.' },
-    { key: 'daily_checkin', label: 'Daily "check your schedule" reminder', hint: 'A once-a-day nudge at the time you choose below. Turning this off stops it completely.' },
+    { key: 'assigned_work_order', label: 'A new work order is assigned to them', hint: 'Always logged either way — this just controls whether their phone buzzes.' },
+    { key: 'calendar_event_added', label: 'Someone adds an event to their calendar', hint: 'Always logged either way — this just controls whether their phone buzzes.' },
+    { key: 'inspection_report_ready', label: 'An inspection report is submitted or updated', hint: 'Relevant for admin/operational — always logged either way.' },
+    { key: 'new_portal_request', label: 'A new request comes in from the client portal', hint: 'Relevant for admin/operational — always logged either way.' },
+    { key: 'daily_checkin', label: 'Daily "check your schedule" reminder', hint: 'A once-a-day nudge at the time chosen below. Turning this off stops it completely.' },
     { key: 'event_reminder', label: '1 hour before a calendar event starts', hint: 'Turning this off stops it completely — there is nothing useful to log after the moment has passed.' }
   ];
 
   route('/account', async () => {
     const forced = location.hash.includes('force=1');
     const view = document.getElementById('view');
-    let prefs = { push_assigned_work_order: 1, push_calendar_event_added: 1, push_daily_checkin: 1, push_event_reminder: 1, push_inspection_report_ready: 1, push_new_portal_request: 1, daily_checkin_time: '07:00' };
-    try { prefs = (await API.get('/api/users/me/notification-preferences')).preferences; } catch (e) {}
-
     view.innerHTML = `
-      <div class="card" style="max-width:520px">
+      <div class="card" style="max-width:480px">
         <h2>My Account</h2>
         ${forced ? `<div class="error-box" style="background:var(--warning-light);color:var(--warning);padding:10px;border-radius:8px;margin-bottom:12px">You're using a temporary password. Please set a new one to continue.</div>` : ''}
         <p class="muted">${esc(state.user.name)} · ${esc(state.user.email)}</p>
@@ -389,27 +426,7 @@ const App = (() => {
         </form>
         <hr class="sep">
         <button class="btn" id="logoutBtn">Log out</button>
-      </div>
-
-      <div class="card" style="max-width:520px">
-        <h2>Notification Settings</h2>
-        <p class="muted">Choose exactly what you get notified about, and when. These are personal — they only affect your own phone/account.</p>
-        <form id="notifForm">
-          ${NOTIF_CATEGORIES.map((c) => `
-            <label style="display:flex;align-items:flex-start;gap:10px;margin-bottom:14px;font-weight:400">
-              <input type="checkbox" name="push_${c.key}" ${prefs['push_' + c.key] ? 'checked' : ''} style="margin-top:3px">
-              <span>
-                <span style="display:block;font-size:.92em">${c.label}</span>
-                <span class="muted" style="font-size:.78em">${c.hint}</span>
-              </span>
-            </label>
-          `).join('')}
-          <div class="field" style="max-width:160px">
-            <label>Daily reminder time</label>
-            <input type="time" name="daily_checkin_time" value="${esc(prefs.daily_checkin_time || '07:00')}">
-          </div>
-          <button class="btn btn-primary mt8" type="submit">Save notification settings</button>
-        </form>
+        ${state.user.role !== 'admin' ? `<p class="muted mt12" style="font-size:.8em">Notification preferences are managed by your admin under Settings.</p>` : ''}
       </div>
     `;
     document.getElementById('pwForm').addEventListener('submit', async (e) => {
@@ -423,17 +440,6 @@ const App = (() => {
       } catch (err) { toast(err.message, 'error'); }
     });
     document.getElementById('logoutBtn').addEventListener('click', logout);
-
-    document.getElementById('notifForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const fd = new FormData(e.target);
-      const payload = { daily_checkin_time: fd.get('daily_checkin_time') };
-      NOTIF_CATEGORIES.forEach((c) => { payload['push_' + c.key] = fd.get('push_' + c.key) === 'on'; });
-      try {
-        await API.put('/api/users/me/notification-preferences', payload);
-        toast('Notification settings saved', 'success');
-      } catch (err) { toast(err.message, 'error'); }
-    });
   });
 
   window.addEventListener('hashchange', render);
@@ -442,5 +448,5 @@ const App = (() => {
     render();
   });
 
-  return { state, route, navigate, render, toast, esc, initials, fmtDate, fmtDateTime, statusLabel, slaInfo, openModal, closeModal, logout, loadNotifications };
+  return { state, route, navigate, render, toast, esc, initials, fmtDate, fmtDateTime, statusLabel, slaInfo, openModal, closeModal, logout, loadNotifications, NOTIF_CATEGORIES };
 })();

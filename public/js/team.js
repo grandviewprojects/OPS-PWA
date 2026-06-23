@@ -42,6 +42,7 @@
           <div class="field"><label>Role</label><select name="role" required>
             <option value="onsite">Onsite team</option>
             <option value="operational">Operational team</option>
+            <option value="marketing">Marketing/Sales</option>
             <option value="admin">Admin</option>
           </select></div>
         </div>
@@ -146,7 +147,7 @@
         <div class="form-row">
           <div class="field"><label>Full name</label><input name="name" value="${esc(p.name)}" required></div>
           <div class="field"><label>Role</label><select name="role">
-            ${['onsite','operational','admin'].map(r => `<option value="${r}" ${r===p.role?'selected':''}>${r}</option>`).join('')}
+            ${['onsite','operational','marketing','admin'].map(r => `<option value="${r}" ${r===p.role?'selected':''}>${r}</option>`).join('')}
           </select></div>
         </div>
         <div class="form-row">
@@ -210,6 +211,8 @@
     const view = document.getElementById('view');
     const data = await API.get('/api/settings');
     const s = data.settings;
+    const teamRes = await API.get('/api/users');
+    const allProfiles = teamRes.users.filter((u) => u.active !== 0);
 
     view.innerHTML = `
       <div class="card" style="max-width:560px">
@@ -243,6 +246,18 @@
         <p class="muted">Share this link with clients so they can submit work order requests directly — no login required:</p>
         <input readonly value="${location.origin}/portal" onclick="this.select()">
       </div>
+
+      <div class="card" style="max-width:560px">
+        <h2>Notification Settings</h2>
+        <p class="muted">Notification preferences are managed centrally here — pick a profile to view or change exactly what they get notified about.</p>
+        <div class="field"><label>Profile</label>
+          <select id="notifProfileSelect">
+            <option value="">Select a profile…</option>
+            ${allProfiles.map((p) => `<option value="${p.id}">${esc(p.name)} (${p.role})</option>`).join('')}
+          </select>
+        </div>
+        <div id="notifPrefsPanel"></div>
+      </div>
     `;
 
     document.getElementById('saveSettingsBtn').addEventListener('click', async () => {
@@ -273,6 +288,46 @@
         await API.put('/api/settings', { quote_sla_hours: document.getElementById('sla_hours').value });
         toast('SLA updated', 'success');
       } catch (err) { toast(err.message, 'error'); }
+    });
+
+    document.getElementById('notifProfileSelect').addEventListener('change', async (e) => {
+      const panel = document.getElementById('notifPrefsPanel');
+      const userId = e.target.value;
+      if (!userId) { panel.innerHTML = ''; return; }
+      panel.innerHTML = `<div class="flex mt12"><div class="spinner"></div> Loading…</div>`;
+      let prefs;
+      try {
+        prefs = (await API.get(`/api/users/${userId}/notification-preferences`)).preferences;
+      } catch (err) { panel.innerHTML = `<p class="muted">${esc(err.message)}</p>`; return; }
+
+      panel.innerHTML = `
+        <form id="notifForm" class="mt12">
+          ${App.NOTIF_CATEGORIES.map((c) => `
+            <label style="display:flex;align-items:flex-start;gap:10px;margin-bottom:14px;font-weight:400">
+              <input type="checkbox" name="push_${c.key}" ${prefs['push_' + c.key] ? 'checked' : ''} style="margin-top:3px">
+              <span>
+                <span style="display:block;font-size:.92em">${c.label}</span>
+                <span class="muted" style="font-size:.78em">${c.hint}</span>
+              </span>
+            </label>
+          `).join('')}
+          <div class="field" style="max-width:160px">
+            <label>Daily reminder time</label>
+            <input type="time" name="daily_checkin_time" value="${esc(prefs.daily_checkin_time || '07:00')}">
+          </div>
+          <button class="btn btn-primary mt8" type="submit">Save for this profile</button>
+        </form>
+      `;
+      document.getElementById('notifForm').addEventListener('submit', async (ev) => {
+        ev.preventDefault();
+        const fd = new FormData(ev.target);
+        const payload = { daily_checkin_time: fd.get('daily_checkin_time') };
+        App.NOTIF_CATEGORIES.forEach((c) => { payload['push_' + c.key] = fd.get('push_' + c.key) === 'on'; });
+        try {
+          await API.put(`/api/users/${userId}/notification-preferences`, payload);
+          toast('Notification settings saved', 'success');
+        } catch (err) { toast(err.message, 'error'); }
+      });
     });
   });
 })();

@@ -176,6 +176,68 @@ and each person's chosen time-of-day actually mean.
 
 ---
 
+## 5c. Notifications — in-depth, managed centrally by admin
+
+Every profile has its own notification preferences, but they're managed in one place: **Settings
+→ Notification Settings**, admin-only. Pick any profile from the dropdown to view or change
+exactly what they get notified about:
+
+- Toggle on/off, per category: work order assigned, calendar event added, inspection report
+  submitted/updated, new portal request, the daily schedule reminder, and the 1-hour-before-event
+  reminder.
+- Set their preferred time for the daily reminder (e.g. 6:30am instead of 7am).
+- Turning off the daily reminder or the 1-hour reminder stops it completely. Turning off any of
+  the other categories only stops the push to their phone — it still shows up in their in-app
+  notification bell, since those represent something that actually happened.
+
+This is intentionally centralized — individual team members cannot change their own notification
+settings; only admin can, for any profile.
+
+The two scheduled ones (daily reminder + 1-hour-before reminder) run automatically in the
+background every minute the server is running. The only shared setting is the company's
+timezone, stored as `notification_timezone` (defaults to `Africa/Johannesburg`).
+
+---
+
+## 5d. Task delegation (admin, operational, marketing)
+
+A **Tasks** tab for admin, operational, and marketing/sales accounts:
+
+- **Admin** can delegate a task to any operational or marketing team member, with an optional
+  deadline ("timer").
+- **Operational and marketing** team members can create tasks for themselves, and set their own
+  deadlines on them.
+- Whoever a task is assigned to sees a live countdown chip (green → amber → red/overdue), the
+  same pattern used for the quote SLA timer elsewhere in the app.
+- Everyone can only see tasks assigned to them; admin sees everything.
+- A full activity log tracks status changes, deadline changes, and reassignments on every task.
+
+---
+
+## 5e. Marketing/Sales role — its own CRM
+
+A new **Marketing/Sales** profile role with a deliberately different interface from the
+operations side — a Kanban-style lead pipeline instead of a work-order list:
+
+- **Leads tab**: a shared pipeline board (New → Contacted → Qualified → Proposal Sent → Won /
+  Lost) visible to the whole marketing team. Add leads manually (name, company, contact details,
+  source, estimated value), move them through the pipeline, log call/email notes on each one, and
+  reassign between marketing team members.
+- **Dashboard**: shows pipeline stage counts and open tasks instead of work-order stats.
+- **Tasks**: same task delegation system described above — marketing team members can self-create
+  tasks, and admin can delegate to them too.
+
+Admin has full access to the Leads CRM (and everything else in the app) alongside the marketing
+team. Onsite and operational accounts cannot see the Leads CRM at all.
+
+One thing worth knowing: this separation is enforced in the **interface** (marketing accounts see
+a completely different nav and dashboard, and the reverse — onsite/operational can't open
+Leads). The underlying API endpoints for work orders/calendar aren't hard-blocked for the
+marketing role specifically the way Leads is blocked for everyone else; say so if you'd like that
+tightened further.
+
+---
+
 ## 5. Deploying it for real (so your team can use it on their phones)
 
 Any host that can run a long-lived Node.js process works: a small VPS

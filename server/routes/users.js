@@ -46,8 +46,8 @@ router.post('/', requireRole('admin'), (req, res) => {
   if (!name || !email || !password || !role) {
     return res.status(400).json({ error: 'name, email, password and role are required' });
   }
-  if (!['admin', 'operational', 'onsite'].includes(role)) {
-    return res.status(400).json({ error: 'role must be admin, operational or onsite' });
+  if (!['admin', 'operational', 'onsite', 'marketing'].includes(role)) {
+    return res.status(400).json({ error: 'role must be admin, operational, onsite or marketing' });
   }
   const existing = db.prepare('SELECT id FROM users WHERE email = ? COLLATE NOCASE').get(email.trim());
   if (existing) return res.status(409).json({ error: 'A user with that email already exists' });
@@ -127,19 +127,27 @@ router.delete('/:id', requireRole('admin'), (req, res) => {
   res.json({ ok: true });
 });
 
-// ---------------- Notification preferences (self-managed only — each person controls their own) ----------------
+// ---------------- Notification preferences ----------------
+// Admin-only: admin manages notification settings for every profile,
+// including their own. Regular users cannot change their own — this is a
+// deliberate centralized-control decision, not an oversight.
 const { ensurePrefsRow } = require('../utils/notify');
 
-router.get('/me/notification-preferences', (req, res) => {
-  res.json({ preferences: ensurePrefsRow(req.user.id) });
+router.get('/:id/notification-preferences', requireRole('admin'), (req, res) => {
+  const user = db.prepare('SELECT id FROM users WHERE id = ?').get(req.params.id);
+  if (!user) return res.status(404).json({ error: 'Not found' });
+  res.json({ preferences: ensurePrefsRow(req.params.id) });
 });
 
-router.put('/me/notification-preferences', (req, res) => {
+router.put('/:id/notification-preferences', requireRole('admin'), (req, res) => {
+  const user = db.prepare('SELECT id FROM users WHERE id = ?').get(req.params.id);
+  if (!user) return res.status(404).json({ error: 'Not found' });
+
   const fields = [
     'push_assigned_work_order', 'push_calendar_event_added', 'push_daily_checkin',
     'push_event_reminder', 'push_inspection_report_ready', 'push_new_portal_request'
   ];
-  ensurePrefsRow(req.user.id); // make sure a row exists before updating
+  ensurePrefsRow(req.params.id); // make sure a row exists before updating
   const body = req.body || {};
   const now = new Date().toISOString();
 
@@ -154,10 +162,10 @@ router.put('/me/notification-preferences', (req, res) => {
   }
   if (sets.length) {
     sets.push('updated_at = ?');
-    vals.push(now, req.user.id);
+    vals.push(now, req.params.id);
     db.prepare(`UPDATE notification_preferences SET ${sets.join(', ')} WHERE user_id = ?`).run(...vals);
   }
-  res.json({ preferences: db.prepare('SELECT * FROM notification_preferences WHERE user_id = ?').get(req.user.id) });
+  res.json({ preferences: db.prepare('SELECT * FROM notification_preferences WHERE user_id = ?').get(req.params.id) });
 });
 
 module.exports = router;

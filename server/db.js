@@ -12,13 +12,57 @@ const db = new DatabaseSync(DB_PATH);
 db.exec('PRAGMA journal_mode = WAL;');
 db.exec('PRAGMA foreign_keys = ON;');
 
+// ---- Migration: relax the users.role CHECK constraint to allow new roles ----
+// SQLite can't ALTER a CHECK constraint directly. A naive rebuild using
+// "ALTER TABLE users RENAME TO users_old" silently breaks every foreign key
+// that points at users(id) — SQLite auto-rewrites those FK definitions to
+// point at the renamed table, and once the old table is dropped they're left
+// dangling (cascading deletes quietly stop working). Tested fix: build the
+// replacement table under a new name, copy data in, DROP the original (which
+// does NOT trigger that FK rewrite), then rename the replacement into place.
+(function migrateUsersRoleConstraint() {
+  const usersSchema = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='users'").get();
+  if (!usersSchema || !usersSchema.sql || !usersSchema.sql.includes("CHECK(role IN")) return; // already migrated, or fresh install
+
+  db.exec('PRAGMA foreign_keys = OFF;');
+  db.exec('BEGIN TRANSACTION;');
+  try {
+    db.exec(`CREATE TABLE users_new (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      email TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      role TEXT NOT NULL,
+      phone TEXT,
+      job_title TEXT,
+      photo TEXT,
+      color TEXT DEFAULT '#2563eb',
+      active INTEGER NOT NULL DEFAULT 1,
+      must_change_password INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );`);
+    db.exec(`INSERT INTO users_new (id,name,email,password_hash,role,phone,job_title,photo,color,active,must_change_password,created_at,updated_at)
+      SELECT id,name,email,password_hash,role,phone,job_title,photo,color,active,must_change_password,created_at,updated_at FROM users;`);
+    db.exec('DROP TABLE users;');
+    db.exec('ALTER TABLE users_new RENAME TO users;');
+    db.exec('COMMIT;');
+    console.log('Migrated users table: role can now be admin, operational, onsite, or marketing.');
+  } catch (e) {
+    db.exec('ROLLBACK;');
+    console.error('users.role migration failed, leaving old schema in place:', e.message);
+  } finally {
+    db.exec('PRAGMA foreign_keys = ON;');
+  }
+})();
+
 db.exec(`
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   email TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
-  role TEXT NOT NULL CHECK(role IN ('admin','operational','onsite')),
+  role TEXT NOT NULL,
   phone TEXT,
   job_title TEXT,
   photo TEXT,
@@ -152,6 +196,51 @@ CREATE TABLE IF NOT EXISTS notification_preferences (
   daily_checkin_time TEXT NOT NULL DEFAULT '07:00',
   last_daily_checkin_date TEXT NOT NULL DEFAULT '',
   updated_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS tasks (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  description TEXT,
+  assigned_to TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_by TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  due_at TEXT,
+  completed_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS task_activity (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  user_id TEXT,
+  message TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS leads (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  company TEXT,
+  email TEXT,
+  phone TEXT,
+  source TEXT,
+  status TEXT NOT NULL DEFAULT 'new',
+  value TEXT,
+  notes TEXT,
+  assigned_to TEXT REFERENCES users(id),
+  created_by TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS lead_activity (
+  id TEXT PRIMARY KEY,
+  lead_id TEXT NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+  user_id TEXT,
+  message TEXT NOT NULL,
+  created_at TEXT NOT NULL
 );
 `);
 
