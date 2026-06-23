@@ -59,6 +59,7 @@ router.post('/', requireRole('admin'), (req, res) => {
     VALUES (?,?,?,?,?,?,?,?,1,1,?,?)`)
     .run(id, name.trim(), email.trim(), hash, role, phone || '', job_title || '', color || '#2563eb', now, now);
   db.prepare('INSERT INTO private_info (user_id, updated_at) VALUES (?,?)').run(id, now);
+  db.prepare('INSERT INTO notification_preferences (user_id, updated_at) VALUES (?,?)').run(id, now);
 
   res.status(201).json({ user: publicUserRow(db.prepare('SELECT * FROM users WHERE id = ?').get(id)) });
 });
@@ -124,6 +125,39 @@ router.delete('/:id', requireRole('admin'), (req, res) => {
   if (req.params.id === req.user.id) return res.status(400).json({ error: 'You cannot deactivate your own account' });
   db.prepare('UPDATE users SET active = 0, updated_at = ? WHERE id = ?').run(new Date().toISOString(), req.params.id);
   res.json({ ok: true });
+});
+
+// ---------------- Notification preferences (self-managed only — each person controls their own) ----------------
+const { ensurePrefsRow } = require('../utils/notify');
+
+router.get('/me/notification-preferences', (req, res) => {
+  res.json({ preferences: ensurePrefsRow(req.user.id) });
+});
+
+router.put('/me/notification-preferences', (req, res) => {
+  const fields = [
+    'push_assigned_work_order', 'push_calendar_event_added', 'push_daily_checkin',
+    'push_event_reminder', 'push_inspection_report_ready', 'push_new_portal_request'
+  ];
+  ensurePrefsRow(req.user.id); // make sure a row exists before updating
+  const body = req.body || {};
+  const now = new Date().toISOString();
+
+  const sets = [];
+  const vals = [];
+  fields.forEach((f) => {
+    if (body[f] !== undefined) { sets.push(`${f} = ?`); vals.push(body[f] ? 1 : 0); }
+  });
+  if (body.daily_checkin_time !== undefined && /^\d{2}:\d{2}$/.test(body.daily_checkin_time)) {
+    sets.push('daily_checkin_time = ?');
+    vals.push(body.daily_checkin_time);
+  }
+  if (sets.length) {
+    sets.push('updated_at = ?');
+    vals.push(now, req.user.id);
+    db.prepare(`UPDATE notification_preferences SET ${sets.join(', ')} WHERE user_id = ?`).run(...vals);
+  }
+  res.json({ preferences: db.prepare('SELECT * FROM notification_preferences WHERE user_id = ?').get(req.user.id) });
 });
 
 module.exports = router;

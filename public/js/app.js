@@ -117,7 +117,8 @@ const App = (() => {
     document.getElementById('app').innerHTML = `
     <div class="login-screen">
       <form class="login-card" id="loginForm">
-        <h1>🛠️ Onsite Ops</h1>
+        <img id="loginLogo" style="display:none;max-height:52px;margin:0 auto 12px;display:block">
+        <h1 id="loginTitle">🛠️ Onsite Ops</h1>
         <p class="sub">Sign in to your team account</p>
         <div id="loginError"></div>
         <div class="field"><label>Email</label><input type="email" name="email" required autocomplete="username"></div>
@@ -138,6 +139,24 @@ const App = (() => {
         document.getElementById('loginError').innerHTML = `<div class="error-box">${esc(err.message)}</div>`;
       }
     });
+
+    // Progressively apply the real company branding once it loads — the form
+    // itself is already usable immediately, this just fills in the identity.
+    API.get('/api/portal/branding').then((branding) => {
+      const titleEl = document.getElementById('loginTitle');
+      if (!titleEl) return; // user may have already navigated away
+      if (branding.brand_color) document.documentElement.style.setProperty('--brand', branding.brand_color);
+
+      const companyName = branding.company_name && branding.company_name !== 'Your Company Name' ? branding.company_name : null;
+      titleEl.textContent = companyName ? `${companyName} Company Portal` : 'Onsite Ops';
+
+      if (branding.company_logo) {
+        const logoEl = document.getElementById('loginLogo');
+        logoEl.src = `/uploads/logo/${esc(branding.company_logo.split('/').pop())}`;
+        logoEl.alt = companyName || 'Company logo';
+        logoEl.style.display = 'block';
+      }
+    }).catch(() => {});
   }
 
   async function afterLogin() {
@@ -343,11 +362,23 @@ const App = (() => {
   }
 
   // ---------- Account / change password ----------
+  const NOTIF_CATEGORIES = [
+    { key: 'assigned_work_order', label: 'A new work order is assigned to me', hint: 'Always logged either way — this just controls whether your phone buzzes.' },
+    { key: 'calendar_event_added', label: 'Someone adds an event to my calendar', hint: 'Always logged either way — this just controls whether your phone buzzes.' },
+    { key: 'inspection_report_ready', label: 'An inspection report is submitted or updated', hint: 'For admin/operational — always logged either way.' },
+    { key: 'new_portal_request', label: 'A new request comes in from the client portal', hint: 'For admin/operational — always logged either way.' },
+    { key: 'daily_checkin', label: 'Daily "check your schedule" reminder', hint: 'A once-a-day nudge at the time you choose below. Turning this off stops it completely.' },
+    { key: 'event_reminder', label: '1 hour before a calendar event starts', hint: 'Turning this off stops it completely — there is nothing useful to log after the moment has passed.' }
+  ];
+
   route('/account', async () => {
     const forced = location.hash.includes('force=1');
     const view = document.getElementById('view');
+    let prefs = { push_assigned_work_order: 1, push_calendar_event_added: 1, push_daily_checkin: 1, push_event_reminder: 1, push_inspection_report_ready: 1, push_new_portal_request: 1, daily_checkin_time: '07:00' };
+    try { prefs = (await API.get('/api/users/me/notification-preferences')).preferences; } catch (e) {}
+
     view.innerHTML = `
-      <div class="card" style="max-width:480px">
+      <div class="card" style="max-width:520px">
         <h2>My Account</h2>
         ${forced ? `<div class="error-box" style="background:var(--warning-light);color:var(--warning);padding:10px;border-radius:8px;margin-bottom:12px">You're using a temporary password. Please set a new one to continue.</div>` : ''}
         <p class="muted">${esc(state.user.name)} · ${esc(state.user.email)}</p>
@@ -358,6 +389,27 @@ const App = (() => {
         </form>
         <hr class="sep">
         <button class="btn" id="logoutBtn">Log out</button>
+      </div>
+
+      <div class="card" style="max-width:520px">
+        <h2>Notification Settings</h2>
+        <p class="muted">Choose exactly what you get notified about, and when. These are personal — they only affect your own phone/account.</p>
+        <form id="notifForm">
+          ${NOTIF_CATEGORIES.map((c) => `
+            <label style="display:flex;align-items:flex-start;gap:10px;margin-bottom:14px;font-weight:400">
+              <input type="checkbox" name="push_${c.key}" ${prefs['push_' + c.key] ? 'checked' : ''} style="margin-top:3px">
+              <span>
+                <span style="display:block;font-size:.92em">${c.label}</span>
+                <span class="muted" style="font-size:.78em">${c.hint}</span>
+              </span>
+            </label>
+          `).join('')}
+          <div class="field" style="max-width:160px">
+            <label>Daily reminder time</label>
+            <input type="time" name="daily_checkin_time" value="${esc(prefs.daily_checkin_time || '07:00')}">
+          </div>
+          <button class="btn btn-primary mt8" type="submit">Save notification settings</button>
+        </form>
       </div>
     `;
     document.getElementById('pwForm').addEventListener('submit', async (e) => {
@@ -371,6 +423,17 @@ const App = (() => {
       } catch (err) { toast(err.message, 'error'); }
     });
     document.getElementById('logoutBtn').addEventListener('click', logout);
+
+    document.getElementById('notifForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const payload = { daily_checkin_time: fd.get('daily_checkin_time') };
+      NOTIF_CATEGORIES.forEach((c) => { payload['push_' + c.key] = fd.get('push_' + c.key) === 'on'; });
+      try {
+        await API.put('/api/users/me/notification-preferences', payload);
+        toast('Notification settings saved', 'success');
+      } catch (err) { toast(err.message, 'error'); }
+    });
   });
 
   window.addEventListener('hashchange', render);

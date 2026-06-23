@@ -1,5 +1,5 @@
 // public/service-worker.js
-const CACHE_NAME = 'onsite-ops-v1';
+const CACHE_NAME = 'onsite-ops-v2'; // bumped to flush everyone's old v1 cache once
 const APP_SHELL = [
   '/',
   '/index.html',
@@ -36,18 +36,20 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // App shell: cache-first, fall back to network, then update cache.
+  // App shell: NETWORK-FIRST. This app changes often — always try to get the
+  // latest deployed version first, and only fall back to the cached copy if
+  // the network request fails (i.e. genuinely offline). This is the opposite
+  // of "cache-first", which would otherwise keep serving an old version
+  // forever since the service worker file itself rarely changes between
+  // deploys and so the browser has no other signal to refresh the cache.
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      if (cached) return cached;
-      return fetch(event.request).then((res) => {
-        if (res.ok && event.request.method === 'GET') {
-          const resClone = res.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, resClone));
-        }
-        return res;
-      }).catch(() => caches.match('/index.html'));
-    })
+    fetch(event.request).then((res) => {
+      if (res.ok && event.request.method === 'GET') {
+        const resClone = res.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, resClone));
+      }
+      return res;
+    }).catch(() => caches.match(event.request).then((cached) => cached || caches.match('/index.html')))
   );
 });
 

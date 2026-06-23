@@ -155,6 +155,27 @@ your own work order data — there's nothing to configure or pay for, it just wo
 
 ---
 
+## 5c. Notifications — in-depth, personal to each profile
+
+Every person controls their own notifications from **My Account**, no admin setup required:
+
+- Toggle on/off, per category: work order assigned to me, someone adds a calendar event for
+  me, an inspection report is submitted/updated, a new portal request comes in, the daily
+  schedule reminder, and the 1-hour-before-event reminder.
+- Pick their own preferred time for the daily reminder (e.g. 6:30am instead of 7am).
+- Turning off the daily reminder or the 1-hour reminder stops it completely. Turning off any
+  of the other categories (work order assigned, calendar event added, etc.) only stops the
+  push to their phone — it still shows up in their in-app notification bell, since those
+  represent something that actually happened and are worth keeping a record of.
+
+The two scheduled ones (daily reminder + 1-hour-before reminder) run automatically in the
+background every minute the server is running — nothing to configure beyond each person's own
+preferences above. The only shared setting is the company's timezone, stored as
+`notification_timezone` (defaults to `Africa/Johannesburg`), used to work out what "today"
+and each person's chosen time-of-day actually mean.
+
+---
+
 ## 5. Deploying it for real (so your team can use it on their phones)
 
 Any host that can run a long-lived Node.js process works: a small VPS

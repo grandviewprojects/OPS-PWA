@@ -25,7 +25,23 @@
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/service-worker.js').catch(() => {});
+      navigator.serviceWorker.register('/service-worker.js').then((reg) => {
+        // Check for a newer deployed version every time the app gains focus,
+        // so updates show up without anyone needing to know what a "hard
+        // refresh" is.
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'visible') reg.update().catch(() => {});
+        });
+      }).catch(() => {});
+
+      // When a new service worker takes control, the page is now holding
+      // old cached JS in memory — reload once to pick up the new code cleanly.
+      let refreshed = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (refreshed) return;
+        refreshed = true;
+        window.location.reload();
+      });
     });
   }
 </script>

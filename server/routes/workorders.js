@@ -3,7 +3,7 @@ const express = require('express');
 const fs = require('fs');
 const { db, uuid } = require('../db');
 const { authRequired, requireRole } = require('../middleware/auth');
-const { sendPushToUser } = require('../utils/push');
+const { notifyUser } = require('../utils/notify');
 
 const router = express.Router();
 router.use(authRequired);
@@ -26,9 +26,7 @@ function logActivity(workOrderId, userId, message) {
 }
 
 function notify(userId, message, link) {
-  db.prepare('INSERT INTO notifications (id,user_id,message,link,read,created_at) VALUES (?,?,?,?,0,?)')
-    .run(uuid(), userId, message, link || '#/work-orders', new Date().toISOString());
-  sendPushToUser(userId, { title: 'Onsite Ops', body: message, link: link || '#/work-orders' }).catch(() => {});
+  notifyUser(userId, 'assigned_work_order', message, link || '#/work-orders');
 }
 
 function syncCalendarForWorkOrder(wo) {

@@ -6,7 +6,7 @@ const fs = require('fs');
 const { db, uuid, n } = require('../db');
 const { authRequired, requireRole } = require('../middleware/auth');
 const { generateInspectionPdf } = require('../utils/pdf');
-const { sendPushToUser } = require('../utils/push');
+const { notifyUser } = require('../utils/notify');
 const { photosDir: PHOTOS_DIR, reportsDir: PDFS_DIR } = require('../paths');
 
 const woRouter = express.Router();
@@ -202,12 +202,8 @@ reportRouter.post('/:id/finalize', async (req, res) => {
       .run(uuid(), wo.id, req.user.id, `Inspection report finalized by ${req.user.name}. Quote due within ${slaHours} hours.`, now);
 
     const staff = db.prepare("SELECT id FROM users WHERE role IN ('admin','operational') AND active = 1").all();
-    const notifyStmt = db.prepare('INSERT INTO notifications (id,user_id,message,link,read,created_at) VALUES (?,?,?,?,0,?)');
     const msg = `${req.user.name} submitted the inspection report for ${wo.reference} — quote due in ${slaHours}h`;
-    staff.forEach(s => {
-      notifyStmt.run(uuid(), s.id, msg, `#/work-orders/${wo.id}`, now);
-      sendPushToUser(s.id, { title: 'Inspection report ready', body: msg, link: `#/work-orders/${wo.id}` }).catch(() => {});
-    });
+    staff.forEach(s => notifyUser(s.id, 'inspection_report_ready', msg, `#/work-orders/${wo.id}`));
   } else {
     // Just refresh the PDF file — leave the SLA timer and work order status untouched.
     db.prepare('UPDATE inspection_reports SET pdf_path = ?, updated_at = ? WHERE id = ?')
@@ -217,12 +213,8 @@ reportRouter.post('/:id/finalize', async (req, res) => {
       .run(uuid(), wo.id, req.user.id, `${req.user.name} updated the inspection report and refreshed the PDF.`, now);
 
     const staff = db.prepare("SELECT id FROM users WHERE role IN ('admin','operational') AND active = 1").all();
-    const notifyStmt = db.prepare('INSERT INTO notifications (id,user_id,message,link,read,created_at) VALUES (?,?,?,?,0,?)');
     const msg = `${req.user.name} updated the inspection report for ${wo.reference}`;
-    staff.forEach(s => {
-      notifyStmt.run(uuid(), s.id, msg, `#/work-orders/${wo.id}`, now);
-      sendPushToUser(s.id, { title: 'Inspection report updated', body: msg, link: `#/work-orders/${wo.id}` }).catch(() => {});
-    });
+    staff.forEach(s => notifyUser(s.id, 'inspection_report_ready', msg, `#/work-orders/${wo.id}`));
   }
 
   res.json({

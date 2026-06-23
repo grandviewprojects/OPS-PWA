@@ -2,7 +2,7 @@
 const express = require('express');
 const { db, uuid, n } = require('../db');
 const { authRequired } = require('../middleware/auth');
-const { sendPushToUser } = require('../utils/push');
+const { notifyUser } = require('../utils/notify');
 
 const router = express.Router();
 router.use(authRequired);
@@ -58,10 +58,7 @@ router.post('/', (req, res) => {
     .run(id, user_id, title, description || '', start_at, end_at, type || 'manual', null, req.user.id, now, now);
 
   if (user_id !== req.user.id) {
-    const msg = `${req.user.name} added "${title}" to your calendar`;
-    db.prepare('INSERT INTO notifications (id,user_id,message,link,read,created_at) VALUES (?,?,?,?,0,?)')
-      .run(uuid(), user_id, msg, '#/calendar', now);
-    sendPushToUser(user_id, { title: 'New calendar event', body: msg, link: '#/calendar' }).catch(() => {});
+    notifyUser(user_id, 'calendar_event_added', `${req.user.name} added "${title}" to your calendar`, '#/calendar');
   }
   res.status(201).json({ event: db.prepare('SELECT * FROM calendar_events WHERE id = ?').get(id) });
 });
@@ -74,8 +71,8 @@ router.put('/:id', (req, res) => {
 
   const { title, description, start_at, end_at } = req.body || {};
   const now = new Date().toISOString();
-  db.prepare('UPDATE calendar_events SET title=COALESCE(?,title), description=COALESCE(?,description), start_at=COALESCE(?,start_at), end_at=COALESCE(?,end_at), updated_at=? WHERE id=?')
-    .run(n(title), n(description), n(start_at), n(end_at), now, req.params.id);
+  db.prepare('UPDATE calendar_events SET title=COALESCE(?,title), description=COALESCE(?,description), start_at=COALESCE(?,start_at), end_at=COALESCE(?,end_at), updated_at=?, reminder_sent=CASE WHEN ? IS NOT NULL THEN 0 ELSE reminder_sent END WHERE id=?')
+    .run(n(title), n(description), n(start_at), n(end_at), now, n(start_at), req.params.id);
   res.json({ event: db.prepare('SELECT * FROM calendar_events WHERE id = ?').get(req.params.id) });
 });
 

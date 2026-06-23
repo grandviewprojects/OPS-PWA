@@ -140,6 +140,19 @@ CREATE TABLE IF NOT EXISTS saved_reports (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS notification_preferences (
+  user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  push_assigned_work_order INTEGER NOT NULL DEFAULT 1,
+  push_calendar_event_added INTEGER NOT NULL DEFAULT 1,
+  push_daily_checkin INTEGER NOT NULL DEFAULT 1,
+  push_event_reminder INTEGER NOT NULL DEFAULT 1,
+  push_inspection_report_ready INTEGER NOT NULL DEFAULT 1,
+  push_new_portal_request INTEGER NOT NULL DEFAULT 1,
+  daily_checkin_time TEXT NOT NULL DEFAULT '07:00',
+  last_daily_checkin_date TEXT NOT NULL DEFAULT '',
+  updated_at TEXT
+);
 `);
 
 // ---- Seed default admin + settings on first run ----
@@ -165,10 +178,24 @@ function seed() {
     vat_number: '',
     company_logo: '',
     brand_color: '#1d4ed8',
-    quote_sla_hours: '72'
+    quote_sla_hours: '72',
+    notification_timezone: 'Africa/Johannesburg'
   };
   const insertIfMissing = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?,?)');
   for (const [k, v] of Object.entries(defaults)) insertIfMissing.run(k, v);
+
+  // Migration: add reminder_sent to calendar_events if it doesn't exist yet
+  // (safe to run on every boot — silently no-ops once the column is there).
+  try { db.exec('ALTER TABLE calendar_events ADD COLUMN reminder_sent INTEGER NOT NULL DEFAULT 0'); } catch (e) { /* already exists */ }
+
+  // Make sure every existing user has a notification_preferences row (new users
+  // get one created at signup time; this backfills anyone created before this
+  // feature existed).
+  const usersWithoutPrefs = db.prepare(`
+    SELECT u.id FROM users u LEFT JOIN notification_preferences np ON np.user_id = u.id WHERE np.user_id IS NULL
+  `).all();
+  const insertPrefs = db.prepare('INSERT INTO notification_preferences (user_id, updated_at) VALUES (?, ?)');
+  usersWithoutPrefs.forEach((u) => insertPrefs.run(u.id, new Date().toISOString()));
 
   // Auto-generate VAPID keys for push notifications, once, so no manual setup is needed.
   const hasVapid = db.prepare("SELECT value FROM settings WHERE key = 'vapid_public_key'").get();

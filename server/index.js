@@ -65,4 +65,5 @@ app.use((err, req, res, next) => {
 
 app.listen(PORT, () => {
   console.log(`Onsite Ops PWA server running at http://localhost:${PORT}`);
+  require('./utils/scheduler').startScheduler();
 });

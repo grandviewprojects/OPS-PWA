@@ -1,7 +1,7 @@
 // server/routes/portal.js
 const express = require('express');
 const { db, uuid } = require('../db');
-const { sendPushToUser } = require('../utils/push');
+const { notifyUser } = require('../utils/notify');
 
 const router = express.Router();
 
@@ -46,12 +46,8 @@ router.post('/work-orders', (req, res) => {
 
   // Notify all operational + admin users of the new incoming request
   const staff = db.prepare("SELECT id FROM users WHERE role IN ('admin','operational') AND active = 1").all();
-  const notifyStmt = db.prepare('INSERT INTO notifications (id,user_id,message,link,read,created_at) VALUES (?,?,?,?,0,?)');
   const msg = `New request from the portal: ${reference} — ${title}`;
-  staff.forEach(s => {
-    notifyStmt.run(uuid(), s.id, msg, `#/work-orders/${id}`, now);
-    sendPushToUser(s.id, { title: 'New service request', body: msg, link: `#/work-orders/${id}` }).catch(() => {});
-  });
+  staff.forEach(s => notifyUser(s.id, 'new_portal_request', msg, `#/work-orders/${id}`));
 
   res.status(201).json({ ok: true, reference });
 });
