@@ -273,8 +273,8 @@
       const btn = document.getElementById('createJobCardBtn');
       if (btn) btn.addEventListener('click', async () => {
         try {
-          await API.post(`/api/work-orders/${wo.id}/job-card`, {});
-          App.render();
+          const res = await API.post(`/api/work-orders/${wo.id}/job-card`, {});
+          navigate(`/job-cards/${res.job_card.id}`);
         } catch (e) { toast(e.message, 'error'); }
       });
       return;
@@ -320,8 +320,8 @@
       const btn = document.getElementById('createReportBtn');
       if (btn) btn.addEventListener('click', async () => {
         try {
-          await API.post(`/api/work-orders/${wo.id}/inspection-report`, {});
-          App.render();
+          const res = await API.post(`/api/work-orders/${wo.id}/inspection-report`, {});
+          navigate(`/inspection-reports/${res.inspection_report.id}`);
         } catch (e) { toast(e.message, 'error'); }
       });
       return;

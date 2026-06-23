@@ -437,7 +437,7 @@ const App = (() => {
       e.preventDefault();
       const fd = new FormData(e.target);
       try {
-        await API.put('/api/auth/change-password', { current_password: fd.get('current_password'), new_password: fd.get('new_password') });
+        await API.post('/api/auth/change-password', { current_password: fd.get('current_password'), new_password: fd.get('new_password') });
         toast('Password updated', 'success');
         state.user.must_change_password = false;
         navigate('/dashboard');

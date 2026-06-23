@@ -150,8 +150,8 @@
     }
 
     function openImportModal() {
-      openModal('Import Leads from Google Sheets', `
-        <p class="muted">Your sheet needs specific columns to import correctly.
+      openModal('Import Leads', `
+        <p class="muted">Your file needs specific columns to import correctly.
           <a href="/templates/leads-import-template.xlsx">Download the template (.xlsx)</a> or
           <a href="/templates/leads-import-template.csv">.csv</a> to get started.
         </p>
@@ -163,22 +163,28 @@
         </div>
 
         <hr class="sep">
-        <form id="sheetImportForm">
+        <form id="csvImportForm">
           <div class="field">
-            <label>Google Sheets link</label>
-            <input name="sheet_url" placeholder="https://docs.google.com/spreadsheets/d/...">
-            <p class="muted" style="font-size:.78em;margin-top:4px">In Google Sheets: Share → "Anyone with the link" → Viewer, then paste the link here.</p>
+            <label>Upload a CSV file <span class="muted">(most reliable — works regardless of sharing settings)</span></label>
+            <input type="file" name="file" accept=".csv">
+            <p class="muted" style="font-size:.78em;margin-top:4px">In Google Sheets: File → Download → Comma Separated Values (.csv), then upload it here.</p>
           </div>
-          <button class="btn btn-primary" type="submit">Import from link</button>
+          <button class="btn btn-primary" type="submit">Import file</button>
         </form>
 
         <hr class="sep">
-        <form id="csvImportForm">
+        <form id="sheetImportForm">
           <div class="field">
-            <label>...or upload a CSV file directly</label>
-            <input type="file" name="file" accept=".csv">
+            <label>...or paste a Google Sheets link directly</label>
+            <input name="sheet_url" placeholder="https://docs.google.com/spreadsheets/d/...">
+            <p class="muted" style="font-size:.78em;margin-top:4px">
+              Share → General access → "Anyone with the link" → Viewer, then paste the link here.
+              On a Google Workspace/business account, this sometimes only shares within your
+              organization even when it looks public — if the import below says it hit a sign-in
+              page, use the CSV upload above instead.
+            </p>
           </div>
-          <button class="btn" type="submit">Import file</button>
+          <button class="btn" type="submit">Import from link</button>
         </form>
 
         <div id="importResult" class="mt12"></div>

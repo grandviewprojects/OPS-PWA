@@ -207,11 +207,35 @@ router.post('/import', upload.single('file'), async (req, res) => {
       csvText = req.file.buffer.toString('utf-8');
     } else if (req.body && req.body.sheet_url) {
       const exportUrl = extractGoogleSheetExportUrl(req.body.sheet_url);
-      const resp = await fetch(exportUrl);
+      let resp;
+      try {
+        resp = await fetch(exportUrl, { redirect: 'follow' });
+      } catch (fetchErr) {
+        return res.status(400).json({ error: `Could not reach Google Sheets (${fetchErr.message}). Try the CSV upload option instead.` });
+      }
       const contentType = resp.headers.get('content-type') || '';
       const text = await resp.text();
-      if (!resp.ok || contentType.includes('text/html') || text.trim().startsWith('<')) {
-        return res.status(400).json({ error: 'Could not read that sheet. Make sure sharing is set to "Anyone with the link can view", then try again.' });
+      const landedOnLoginPage = /accounts\.google\.com/.test(resp.url) || /ServiceLogin/.test(resp.url);
+      const looksLikeHtml = contentType.includes('text/html') || text.trim().startsWith('<');
+
+      if (landedOnLoginPage) {
+        return res.status(400).json({
+          error: 'Google redirected this to a sign-in page instead of the sheet, which means it isn\'t actually public yet. ' +
+            'If this is a Google Workspace / business account, "Anyone with the link" sometimes only means "anyone in your organization" ' +
+            'unless an admin has allowed external sharing. Try: Share → General access → make sure it says "Anyone with the link" (not ' +
+            'a company/organization name) → Viewer. If your Workspace blocks this, use "Upload a CSV file" below instead — download the ' +
+            'sheet as CSV (File → Download → Comma Separated Values) and upload that file directly.'
+        });
+      }
+      if (!resp.ok) {
+        return res.status(400).json({ error: `Google returned an error (HTTP ${resp.status}) for that link. Double-check the link is correct, or use the CSV upload option instead.` });
+      }
+      if (looksLikeHtml) {
+        return res.status(400).json({
+          error: 'Got a webpage back instead of your sheet\'s data — usually means the sharing link doesn\'t point at a real spreadsheet, ' +
+            'or the specific tab (gid) in the link doesn\'t exist. Try copying the link again while the "Leads" tab is open and active, ' +
+            'or use the CSV upload option instead, which always works regardless of sharing settings.'
+        });
       }
       csvText = text;
     } else {
