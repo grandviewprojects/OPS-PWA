@@ -6,6 +6,11 @@
   let selectedUserId = null;
   let teamUsers = [];
 
+  App.onLogout(() => {
+    selectedUserId = null;
+    teamUsers = [];
+  });
+
   function monthBounds(d) {
     const start = new Date(d.getFullYear(), d.getMonth(), 1);
     const end = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59);
@@ -20,7 +25,11 @@
     if (isStaff && teamUsers.length === 0) {
       teamUsers = (await API.get('/api/users')).users.filter(x => x.active !== 0);
     }
-    if (!selectedUserId) selectedUserId = u.id;
+    // Onsite accounts can only ever see their own calendar — force this every time,
+    // regardless of whatever was selected in a previous session in this same tab
+    // (a leftover selection from a staff account, for example, must never leak in).
+    if (u.role === 'onsite') selectedUserId = u.id;
+    else if (!selectedUserId) selectedUserId = u.id;
 
     view.innerHTML = `
       <div class="cal-header">

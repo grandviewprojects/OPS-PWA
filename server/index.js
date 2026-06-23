@@ -9,6 +9,7 @@ const userRoutes = require('./routes/users');
 const calendarRoutes = require('./routes/calendar');
 const workOrderRoutes = require('./routes/workorders');
 const inspectionRoutes = require('./routes/inspections');
+const jobcardRoutes = require('./routes/jobcards');
 const portalRoutes = require('./routes/portal');
 const settingsRoutes = require('./routes/settings');
 const dashboardRoutes = require('./routes/dashboard');
@@ -37,6 +38,8 @@ app.use('/api/calendar', calendarRoutes);
 app.use('/api/work-orders', workOrderRoutes);
 app.use('/api/work-orders', inspectionRoutes.woRouter); // /api/work-orders/:woId/inspection-report
 app.use('/api/inspection-reports', inspectionRoutes.reportRouter);
+app.use('/api/work-orders', jobcardRoutes.woRouter); // /api/work-orders/:woId/job-card
+app.use('/api/job-cards', jobcardRoutes.cardRouter);
 app.use('/api/portal', portalRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/dashboard', dashboardRoutes);

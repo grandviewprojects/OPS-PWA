@@ -167,9 +167,13 @@ const App = (() => {
     else render();
   }
 
+  const logoutHooks = [];
+  function onLogout(fn) { logoutHooks.push(fn); }
+
   function logout() {
     API.setToken(null);
     state.user = null;
+    logoutHooks.forEach((fn) => { try { fn(); } catch (e) {} });
     render();
   }
 
@@ -448,5 +452,5 @@ const App = (() => {
     render();
   });
 
-  return { state, route, navigate, render, toast, esc, initials, fmtDate, fmtDateTime, statusLabel, slaInfo, openModal, closeModal, logout, loadNotifications, NOTIF_CATEGORIES };
+  return { state, route, navigate, render, toast, esc, initials, fmtDate, fmtDateTime, statusLabel, slaInfo, openModal, closeModal, logout, loadNotifications, NOTIF_CATEGORIES, onLogout };
 })();

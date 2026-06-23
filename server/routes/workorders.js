@@ -74,7 +74,8 @@ router.get('/:id', (req, res) => {
   }
   const activity = db.prepare('SELECT * FROM work_order_activity WHERE work_order_id = ? ORDER BY created_at DESC').all(req.params.id);
   const inspection = wo.inspection_report_id ? db.prepare('SELECT * FROM inspection_reports WHERE id = ?').get(wo.inspection_report_id) : null;
-  res.json({ work_order: wo, activity, inspection_report: inspection });
+  const jobCard = wo.job_card_id ? db.prepare('SELECT * FROM job_cards WHERE id = ?').get(wo.job_card_id) : null;
+  res.json({ work_order: wo, activity, inspection_report: inspection, job_card: jobCard });
 });
 
 // Create (internal — admin/operational). External portal submissions use /api/portal/work-orders instead.
@@ -170,8 +171,8 @@ router.get('/:id/activity', (req, res) => {
 });
 
 // Permanently delete a work order — admin only. Cleans up calendar events,
-// the inspection report (and its uploaded photos + generated PDF on disk),
-// and the activity log. This cannot be undone.
+// the inspection report and job card (and their uploaded photos + generated
+// PDFs on disk), and the activity log. This cannot be undone.
 router.delete('/:id', requireRole('admin'), (req, res) => {
   const wo = db.prepare('SELECT * FROM work_orders WHERE id = ?').get(req.params.id);
   if (!wo) return res.status(404).json({ error: 'Not found' });
@@ -179,24 +180,28 @@ router.delete('/:id', requireRole('admin'), (req, res) => {
   const report = wo.inspection_report_id
     ? db.prepare('SELECT * FROM inspection_reports WHERE id = ?').get(wo.inspection_report_id)
     : null;
+  const jobCard = wo.job_card_id
+    ? db.prepare('SELECT * FROM job_cards WHERE id = ?').get(wo.job_card_id)
+    : null;
 
-  if (report) {
-    const filesToRemove = [];
-    try { (JSON.parse(report.photos || '[]')).forEach(p => p.path && filesToRemove.push(p.path)); } catch (e) {}
+  const filesToRemove = [];
+  [report, jobCard].forEach((doc) => {
+    if (!doc) return;
+    try { (JSON.parse(doc.photos || '[]')).forEach(p => p.path && filesToRemove.push(p.path)); } catch (e) {}
     try {
-      (JSON.parse(report.sections || '[]')).forEach(s => {
+      (JSON.parse(doc.sections || '[]')).forEach(s => {
         if (Array.isArray(s.photos)) s.photos.forEach(p => p.path && filesToRemove.push(p.path));
       });
     } catch (e) {}
-    if (report.pdf_path) filesToRemove.push(report.pdf_path);
-    filesToRemove.forEach(p => { try { if (fs.existsSync(p)) fs.unlinkSync(p); } catch (e) {} });
-  }
+    if (doc.pdf_path) filesToRemove.push(doc.pdf_path);
+  });
+  filesToRemove.forEach(p => { try { if (fs.existsSync(p)) fs.unlinkSync(p); } catch (e) {} });
 
   // calendar_events.work_order_id has no FK cascade defined, so remove those explicitly.
   db.prepare('DELETE FROM calendar_events WHERE work_order_id = ?').run(req.params.id);
 
-  // Deleting the work order cascades to its inspection_reports and activity log
-  // automatically (both declared ON DELETE CASCADE).
+  // Deleting the work order cascades to its inspection_reports, job_cards, and
+  // activity log automatically (all declared ON DELETE CASCADE).
   db.prepare('DELETE FROM work_orders WHERE id = ?').run(req.params.id);
 
   res.json({ ok: true });

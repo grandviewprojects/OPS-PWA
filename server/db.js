@@ -146,6 +146,23 @@ CREATE TABLE IF NOT EXISTS inspection_reports (
   updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS job_cards (
+  id TEXT PRIMARY KEY,
+  work_order_id TEXT NOT NULL REFERENCES work_orders(id) ON DELETE CASCADE,
+  created_by TEXT NOT NULL,
+  title TEXT,
+  summary TEXT,
+  special_instructions TEXT,
+  general_materials TEXT,
+  sections TEXT NOT NULL DEFAULT '[]',
+  photos TEXT NOT NULL DEFAULT '[]',
+  status TEXT NOT NULL DEFAULT 'draft',
+  finalized_at TEXT,
+  pdf_path TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS notifications (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -276,6 +293,7 @@ function seed() {
   // Migration: add reminder_sent to calendar_events if it doesn't exist yet
   // (safe to run on every boot — silently no-ops once the column is there).
   try { db.exec('ALTER TABLE calendar_events ADD COLUMN reminder_sent INTEGER NOT NULL DEFAULT 0'); } catch (e) { /* already exists */ }
+  try { db.exec('ALTER TABLE work_orders ADD COLUMN job_card_id TEXT'); } catch (e) { /* already exists */ }
 
   // Make sure every existing user has a notification_preferences row (new users
   // get one created at signup time; this backfills anyone created before this

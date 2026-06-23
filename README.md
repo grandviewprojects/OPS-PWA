@@ -235,6 +235,36 @@ imported, skipped, or couldn't be matched after each import.
 
 ---
 
+---
+
+## 5f. Job cards — operations briefing the onsite team
+
+On every work order, below the **Inspection Report** section, there's a **Job Card** — the
+mirror image of the inspection report:
+
+- **Inspection report** = onsite tells operations what they found (for quoting)
+- **Job card** = operations tells onsite what to do about it (for actually doing the work)
+
+So the editing direction is reversed on purpose: only admin/operational can create or edit a job
+card; the onsite person assigned to that work order can view it (read-only) and download the
+PDF, but never edit it.
+
+- **Smart pre-fill**: if a finalized inspection report already exists for the work order,
+  starting a new job card automatically pre-fills one task per finding (heading, description,
+  and photos carried over) — operations just fills in the materials needed for each, rather than
+  starting from a blank page.
+- **Materials, at two levels**: a "General materials & tools needed" box for the whole job (e.g.
+  ladder, safety harness), and a "Materials needed" field on each individual task, so onsite
+  knows exactly what to bring for each item.
+- **Special instructions**: a separate field for site access info — gate codes, pets on the
+  property, parking instructions, anything onsite needs to know before they arrive.
+- **PDF**: same letterhead and "Issue list" visual style as the inspection report, downloadable
+  any time once finalized. Like inspection reports, it stays editable afterwards — re-finalize to
+  refresh the PDF if anything changes.
+- Finalizing (or updating) a job card notifies the assigned onsite person.
+
+---
+
 ## 5. Deploying it for real (so your team can use it on their phones)
 
 Any host that can run a long-lived Node.js process works: a small VPS

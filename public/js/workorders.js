@@ -161,6 +161,8 @@
 
       <div class="card" id="inspectionCard"></div>
 
+      <div class="card" id="jobCardCard"></div>
+
       <div class="card">
         <h3>Activity</h3>
         <div>${data.activity.map(a => `<div class="list-item" style="cursor:default"><div><div>${esc(a.message)}</div><div class="meta">${fmtDateTime(a.created_at)}</div></div></div>`).join('') || '<div class="empty-state">No activity yet.</div>'}</div>
@@ -168,6 +170,7 @@
     `;
 
     renderInspectionCard(document.getElementById('inspectionCard'), wo, data.inspection_report, isStaff);
+    renderJobCard(document.getElementById('jobCardCard'), wo, data.job_card, isStaff);
 
     if (isAdmin) {
       document.getElementById('deleteWoBtn').addEventListener('click', () => {
@@ -257,6 +260,53 @@
         catch (err) { toast(err.message, 'error'); }
       });
     });
+  }
+
+  // ---------------- Job card on work order page (operations -> onsite, the mirror of the inspection report) ----------------
+  function renderJobCard(el, wo, card, isStaff) {
+    if (!card) {
+      el.innerHTML = `
+        <h3>Job Card</h3>
+        <p class="muted">${isStaff ? 'No job card has been created for this work order yet.' : 'No job card yet — check back once operations has prepared one.'}</p>
+        ${isStaff ? `<button class="btn btn-primary" id="createJobCardBtn">🧰 Create job card</button>` : ''}
+      `;
+      const btn = document.getElementById('createJobCardBtn');
+      if (btn) btn.addEventListener('click', async () => {
+        try {
+          await API.post(`/api/work-orders/${wo.id}/job-card`, {});
+          App.render();
+        } catch (e) { toast(e.message, 'error'); }
+      });
+      return;
+    }
+    el.innerHTML = `
+      <div class="flex-between">
+        <h3>Job Card</h3>
+        <span class="badge ${card.status === 'finalized' ? 'badge-quote_sent' : 'badge-in_progress'}">${card.status === 'finalized' ? 'Finalized' : 'Draft'}</span>
+      </div>
+      <p class="muted">${card.status === 'finalized' ? `Finalized ${App.fmtDateTime(card.finalized_at)}` : (isStaff ? 'In progress — open the editor to add tasks and materials.' : 'Operations is still preparing this job card.')}</p>
+      <div class="flex">
+        ${isStaff ? `<button class="btn btn-primary btn-sm" id="openJobCardBtn">${card.status === 'finalized' ? 'Open job card' : 'Continue editing'}</button>` : ''}
+        ${card.status === 'finalized' ? `<button class="btn btn-sm" id="dlJobCardBtn">⬇ Download PDF</button>` : ''}
+      </div>
+    `;
+    const openBtn = document.getElementById('openJobCardBtn');
+    if (openBtn) openBtn.addEventListener('click', () => navigate(`/job-cards/${card.id}`));
+    const dl = document.getElementById('dlJobCardBtn');
+    if (dl) dl.addEventListener('click', () => downloadJobCardPdf(card.id, wo.reference));
+  }
+
+  async function downloadJobCardPdf(cardId, reference) {
+    try {
+      const res = await fetch(`/api/job-cards/${cardId}/pdf`, { headers: { Authorization: 'Bearer ' + API.token() } });
+      if (!res.ok) throw new Error('Could not download PDF');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `Job-Card-${reference}.pdf`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) { toast(e.message, 'error'); }
   }
 
   // ---------------- Inspection report card on work order page ----------------
