@@ -108,6 +108,7 @@
     let teamUsers = [];
     if (isStaff) teamUsers = (await API.get('/api/users')).users.filter(x => x.role === 'onsite' && x.active !== 0);
 
+    const isAdmin = u.role === 'admin';
     view.innerHTML = `
       <a href="#/work-orders" class="muted">&larr; Back to work orders</a>
       <div class="section-title mt12">
@@ -115,6 +116,7 @@
         <div class="flex">
           <span class="badge badge-${wo.priority}">${wo.priority}</span>
           <span class="badge badge-${wo.status}">${statusLabel(wo.status)}</span>
+          ${isAdmin ? `<button class="btn btn-sm btn-danger" id="deleteWoBtn">🗑 Delete</button>` : ''}
         </div>
       </div>
       ${sla ? `<div class="card" style="border-color:${sla.cls === 'sla-overdue' ? 'var(--danger)' : 'var(--border)'}"><span class="sla-chip ${sla.cls}">${sla.label}</span> <span class="muted">— quote SLA started when the inspection report was finalized.</span></div>` : ''}
@@ -167,6 +169,25 @@
 
     renderInspectionCard(document.getElementById('inspectionCard'), wo, data.inspection_report, isStaff);
 
+    if (isAdmin) {
+      document.getElementById('deleteWoBtn').addEventListener('click', () => {
+        openModal('Delete Work Order', `
+          <p>Are you sure you want to permanently delete <strong>${esc(wo.reference)} — ${esc(wo.title)}</strong>?</p>
+          <p class="muted">This deletes the work order, its calendar entries, its inspection report, and all uploaded photos and PDFs. <strong>This cannot be undone.</strong></p>
+          <div class="modal-actions"><button class="btn" data-close-modal>Cancel</button><button class="btn btn-danger" id="confirmDeleteWo">Delete permanently</button></div>
+        `, (body) => {
+          body.querySelector('[data-close-modal]').addEventListener('click', closeModal);
+          body.querySelector('#confirmDeleteWo').addEventListener('click', async () => {
+            try {
+              await API.del(`/api/work-orders/${id}`);
+              closeModal();
+              toast('Work order deleted', 'success');
+              navigate('/work-orders');
+            } catch (err) { toast(err.message, 'error'); }
+          });
+        });
+      });
+    }
     if (isStaff) {
       document.getElementById('editWoBtn').addEventListener('click', () => openEditWorkOrderForm(wo));
       document.getElementById('saveAssignBtn').addEventListener('click', async () => {
@@ -389,11 +410,15 @@
         const files = Array.from(e.target.files || []);
         if (!files.length) return;
         const sectionId = e.target.dataset.secPhotoInput;
-        const fd = new FormData();
-        files.forEach(f => fd.append('photos', f));
-        fd.append('section_id', sectionId);
         toast('Uploading photo(s)…');
         try {
+          // Make sure this finding actually exists on the server first — if it was
+          // just added and never saved, the server has no matching finding yet to
+          // attach the photo to, and it would silently end up in the wrong place.
+          await saveDraft(false);
+          const fd = new FormData();
+          files.forEach(f => fd.append('photos', f));
+          fd.append('section_id', sectionId);
           const res = await API.post(`/api/inspection-reports/${id}/photos`, fd, true);
           const freshSections = JSON.parse(res.inspection_report.sections);
           const updated = freshSections.find(s => s.id === sectionId);

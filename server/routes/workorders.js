@@ -1,5 +1,6 @@
 // server/routes/workorders.js
 const express = require('express');
+const fs = require('fs');
 const { db, uuid } = require('../db');
 const { authRequired, requireRole } = require('../middleware/auth');
 const { sendPushToUser } = require('../utils/push');
@@ -168,6 +169,39 @@ router.put('/:id', (req, res) => {
 
 router.get('/:id/activity', (req, res) => {
   res.json({ activity: db.prepare('SELECT * FROM work_order_activity WHERE work_order_id = ? ORDER BY created_at DESC').all(req.params.id) });
+});
+
+// Permanently delete a work order — admin only. Cleans up calendar events,
+// the inspection report (and its uploaded photos + generated PDF on disk),
+// and the activity log. This cannot be undone.
+router.delete('/:id', requireRole('admin'), (req, res) => {
+  const wo = db.prepare('SELECT * FROM work_orders WHERE id = ?').get(req.params.id);
+  if (!wo) return res.status(404).json({ error: 'Not found' });
+
+  const report = wo.inspection_report_id
+    ? db.prepare('SELECT * FROM inspection_reports WHERE id = ?').get(wo.inspection_report_id)
+    : null;
+
+  if (report) {
+    const filesToRemove = [];
+    try { (JSON.parse(report.photos || '[]')).forEach(p => p.path && filesToRemove.push(p.path)); } catch (e) {}
+    try {
+      (JSON.parse(report.sections || '[]')).forEach(s => {
+        if (Array.isArray(s.photos)) s.photos.forEach(p => p.path && filesToRemove.push(p.path));
+      });
+    } catch (e) {}
+    if (report.pdf_path) filesToRemove.push(report.pdf_path);
+    filesToRemove.forEach(p => { try { if (fs.existsSync(p)) fs.unlinkSync(p); } catch (e) {} });
+  }
+
+  // calendar_events.work_order_id has no FK cascade defined, so remove those explicitly.
+  db.prepare('DELETE FROM calendar_events WHERE work_order_id = ?').run(req.params.id);
+
+  // Deleting the work order cascades to its inspection_reports and activity log
+  // automatically (both declared ON DELETE CASCADE).
+  db.prepare('DELETE FROM work_orders WHERE id = ?').run(req.params.id);
+
+  res.json({ ok: true });
 });
 
 module.exports = router;
