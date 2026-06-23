@@ -200,8 +200,10 @@ operations side — a Kanban-style lead pipeline instead of a work-order list:
 
 - **Leads tab**: a shared pipeline board (New → Contacted → Qualified → Proposal Sent → Won /
   Lost) visible to the whole marketing team. Add leads manually (name, company, contact details,
-  source, estimated value), move them through the pipeline, log call/email notes on each one, and
-  reassign between marketing team members.
+  source), move them through the pipeline, log call/email notes on each one, and
+  reassign between marketing team members. Clicking any lead opens a fully editable form — every
+  field (name, company, email, phone, source, notes) can be corrected or updated at any time, not
+  just the pipeline stage.
 - **Dashboard**: shows pipeline stage counts and open tasks instead of work-order stats.
 - **Tasks**: same task delegation system described above — marketing team members can self-create
   tasks, and admin can delegate to them too.
@@ -228,7 +230,7 @@ On the Leads page, **"Import from Google Sheets"** lets you bulk-add leads two w
 Both use the same format — download the ready-made template from the import dialog
 (`/templates/leads-import-template.xlsx` or `.csv`), which includes a header row, two example
 rows, and an Instructions tab. Only the **Name** column is required; everything else (Company,
-Email, Phone, Source, Value, Notes, Assigned To Email) is optional. "Assigned To Email" must
+Email, Phone, Source, Notes, Assigned To Email) is optional. "Assigned To Email" must
 match an existing admin/marketing team member's login email, or the lead is assigned to whoever
 ran the import. Rows missing a name are skipped automatically, and you'll see exactly what was
 imported, skipped, or couldn't be matched after each import.

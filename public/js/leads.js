@@ -34,20 +34,17 @@
       const board = document.getElementById('pipelineBoard');
       board.innerHTML = PIPELINE.map((col) => {
         const colLeads = leads.filter((l) => l.status === col.key);
-        const totalValue = colLeads.reduce((sum, l) => sum + (parseFloat(l.value) || 0), 0);
         return `
         <div style="flex:0 0 240px;background:var(--bg);border-radius:10px;padding:10px;">
           <div class="flex-between" style="margin-bottom:8px;padding:0 2px">
             <span style="font-weight:700;font-size:.82em;color:${col.color};text-transform:uppercase;letter-spacing:.03em">${col.label}</span>
             <span class="badge" style="background:${col.color}22;color:${col.color}">${colLeads.length}</span>
           </div>
-          ${totalValue ? `<div class="muted" style="font-size:.74em;margin-bottom:8px;padding:0 2px">Total: ${totalValue.toLocaleString()}</div>` : ''}
           <div style="display:flex;flex-direction:column;gap:8px">
             ${colLeads.map((l) => `
               <div class="card" data-lead="${l.id}" style="margin-bottom:0;padding:10px;cursor:pointer;border-top:3px solid ${col.color}">
                 <div style="font-weight:600;font-size:.88em">${esc(l.name)}</div>
                 ${l.company ? `<div class="muted" style="font-size:.78em">${esc(l.company)}</div>` : ''}
-                ${l.value ? `<div style="font-size:.78em;margin-top:4px;font-weight:600;color:${col.color}">${esc(l.value)}</div>` : ''}
                 ${l.assignee_name ? `<div class="muted" style="font-size:.72em;margin-top:4px">👤 ${esc(l.assignee_name)}</div>` : ''}
               </div>
             `).join('') || `<div class="muted" style="font-size:.78em;padding:8px 2px">No leads here</div>`}
@@ -68,10 +65,7 @@
             <div class="field"><label>Email</label><input type="email" name="email"></div>
             <div class="field"><label>Phone</label><input name="phone"></div>
           </div>
-          <div class="form-row">
-            <div class="field"><label>Source</label><input name="source" placeholder="e.g. referral, website, cold call"></div>
-            <div class="field"><label>Estimated value</label><input name="value" placeholder="e.g. R15,000"></div>
-          </div>
+          <div class="field"><label>Source</label><input name="source" placeholder="e.g. referral, website, cold call"></div>
           <div class="field"><label>Assign to</label><select name="assigned_to">
             <option value="${u.id}">Me</option>
             ${marketingUsers.filter((m) => m.id !== u.id).map((m) => `<option value="${m.id}">${esc(m.name)}</option>`).join('')}
@@ -94,16 +88,18 @@
 
     async function openLeadDetail(leadId) {
       const { lead, activity } = await API.get(`/api/leads/${leadId}`);
-      openModal(lead.name, `
-        <table class="simple">
-          <tr><th>Company</th><td>${esc(lead.company || '—')}</td></tr>
-          <tr><th>Email</th><td>${esc(lead.email || '—')}</td></tr>
-          <tr><th>Phone</th><td>${esc(lead.phone || '—')}</td></tr>
-          <tr><th>Source</th><td>${esc(lead.source || '—')}</td></tr>
-          <tr><th>Value</th><td>${esc(lead.value || '—')}</td></tr>
-          <tr><th>Notes</th><td>${esc(lead.notes || '—')}</td></tr>
-        </table>
-        <div class="form-row mt12">
+      openModal('Edit Lead', `
+        <div class="form-row">
+          <div class="field"><label>Name</label><input id="leadNameInput" value="${esc(lead.name || '')}" required></div>
+          <div class="field"><label>Company</label><input id="leadCompanyInput" value="${esc(lead.company || '')}"></div>
+        </div>
+        <div class="form-row">
+          <div class="field"><label>Email</label><input type="email" id="leadEmailInput" value="${esc(lead.email || '')}"></div>
+          <div class="field"><label>Phone</label><input id="leadPhoneInput" value="${esc(lead.phone || '')}"></div>
+        </div>
+        <div class="field"><label>Source</label><input id="leadSourceInput" value="${esc(lead.source || '')}" placeholder="e.g. referral, website, cold call"></div>
+        <div class="field"><label>Notes</label><textarea id="leadNotesInput">${esc(lead.notes || '')}</textarea></div>
+        <div class="form-row">
           <div class="field"><label>Pipeline stage</label><select id="leadStatusSelect">
             ${PIPELINE.map((c) => `<option value="${c.key}" ${c.key === lead.status ? 'selected' : ''}>${c.label}</option>`).join('')}
           </select></div>
@@ -122,8 +118,16 @@
         <div>${activity.map((a) => `<div class="list-item" style="cursor:default;padding:8px 0"><div><div style="font-size:.88em">${esc(a.message)}</div><div class="meta">${a.user_name ? esc(a.user_name) + ' · ' : ''}${fmtDateTime(a.created_at)}</div></div></div>`).join('') || '<p class="muted">No activity yet.</p>'}</div>
       `, (body) => {
         body.querySelector('#saveLeadBtn').addEventListener('click', async () => {
+          const name = body.querySelector('#leadNameInput').value.trim();
+          if (!name) { toast('Name is required', 'error'); return; }
           try {
             await API.put(`/api/leads/${leadId}`, {
+              name,
+              company: body.querySelector('#leadCompanyInput').value,
+              email: body.querySelector('#leadEmailInput').value,
+              phone: body.querySelector('#leadPhoneInput').value,
+              source: body.querySelector('#leadSourceInput').value,
+              notes: body.querySelector('#leadNotesInput').value,
               status: body.querySelector('#leadStatusSelect').value,
               assigned_to: body.querySelector('#leadAssigneeSelect').value
             });
@@ -157,7 +161,7 @@
         </p>
         <div class="privacy-note mt8">
           <strong>Required format:</strong> a header row with <code>Name</code> (required), and any of
-          <code>Company, Email, Phone, Source, Value, Notes, Assigned To Email</code>.
+          <code>Company, Email, Phone, Source, Notes, Assigned To Email</code>.
           "Assigned To Email" must match an existing admin/marketing team member's login email —
           otherwise the lead is assigned to you.
         </div>
