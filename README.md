@@ -155,27 +155,6 @@ your own work order data — there's nothing to configure or pay for, it just wo
 
 ---
 
-## 5c. Notifications — in-depth, personal to each profile
-
-Every person controls their own notifications from **My Account**, no admin setup required:
-
-- Toggle on/off, per category: work order assigned to me, someone adds a calendar event for
-  me, an inspection report is submitted/updated, a new portal request comes in, the daily
-  schedule reminder, and the 1-hour-before-event reminder.
-- Pick their own preferred time for the daily reminder (e.g. 6:30am instead of 7am).
-- Turning off the daily reminder or the 1-hour reminder stops it completely. Turning off any
-  of the other categories (work order assigned, calendar event added, etc.) only stops the
-  push to their phone — it still shows up in their in-app notification bell, since those
-  represent something that actually happened and are worth keeping a record of.
-
-The two scheduled ones (daily reminder + 1-hour-before reminder) run automatically in the
-background every minute the server is running — nothing to configure beyond each person's own
-preferences above. The only shared setting is the company's timezone, stored as
-`notification_timezone` (defaults to `Africa/Johannesburg`), used to work out what "today"
-and each person's chosen time-of-day actually mean.
-
----
-
 ## 5c. Notifications — in-depth, managed centrally by admin
 
 Every profile has its own notification preferences, but they're managed in one place: **Settings
@@ -235,6 +214,24 @@ a completely different nav and dashboard, and the reverse — onsite/operational
 Leads). The underlying API endpoints for work orders/calendar aren't hard-blocked for the
 marketing role specifically the way Leads is blocked for everyone else; say so if you'd like that
 tightened further.
+
+### Importing leads from Google Sheets
+
+On the Leads page, **"Import from Google Sheets"** lets you bulk-add leads two ways:
+
+1. **From a live Google Sheet** — in Google Sheets, click Share → set to "Anyone with the link" →
+   Viewer, copy the link, paste it into the import box. No Google account connection or API key
+   needed — it reads the sheet's public CSV export directly.
+2. **By uploading a CSV file** — if you'd rather not make a sheet link-shareable, export it as CSV
+   (File → Download → CSV in Google Sheets, or Save As in Excel) and upload that instead.
+
+Both use the same format — download the ready-made template from the import dialog
+(`/templates/leads-import-template.xlsx` or `.csv`), which includes a header row, two example
+rows, and an Instructions tab. Only the **Name** column is required; everything else (Company,
+Email, Phone, Source, Value, Notes, Assigned To Email) is optional. "Assigned To Email" must
+match an existing admin/marketing team member's login email, or the lead is assigned to whoever
+ran the import. Rows missing a name are skipped automatically, and you'll see exactly what was
+imported, skipped, or couldn't be matched after each import.
 
 ---
 

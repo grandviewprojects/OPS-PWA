@@ -21,7 +21,10 @@
     view.innerHTML = `
       <div class="section-title">
         <h2>🎯 Leads Pipeline</h2>
-        <button class="btn btn-primary" id="newLeadBtn">+ New lead</button>
+        <div class="flex">
+          <button class="btn btn-sm" id="importLeadsBtn">⬆ Import from Google Sheets</button>
+          <button class="btn btn-primary" id="newLeadBtn">+ New lead</button>
+        </div>
       </div>
       <div id="pipelineBoard" style="display:flex;gap:12px;overflow-x:auto;padding-bottom:8px;"></div>
     `;
@@ -146,7 +149,82 @@
       });
     }
 
+    function openImportModal() {
+      openModal('Import Leads from Google Sheets', `
+        <p class="muted">Your sheet needs specific columns to import correctly.
+          <a href="/templates/leads-import-template.xlsx">Download the template (.xlsx)</a> or
+          <a href="/templates/leads-import-template.csv">.csv</a> to get started.
+        </p>
+        <div class="privacy-note mt8">
+          <strong>Required format:</strong> a header row with <code>Name</code> (required), and any of
+          <code>Company, Email, Phone, Source, Value, Notes, Assigned To Email</code>.
+          "Assigned To Email" must match an existing admin/marketing team member's login email —
+          otherwise the lead is assigned to you.
+        </div>
+
+        <hr class="sep">
+        <form id="sheetImportForm">
+          <div class="field">
+            <label>Google Sheets link</label>
+            <input name="sheet_url" placeholder="https://docs.google.com/spreadsheets/d/...">
+            <p class="muted" style="font-size:.78em;margin-top:4px">In Google Sheets: Share → "Anyone with the link" → Viewer, then paste the link here.</p>
+          </div>
+          <button class="btn btn-primary" type="submit">Import from link</button>
+        </form>
+
+        <hr class="sep">
+        <form id="csvImportForm">
+          <div class="field">
+            <label>...or upload a CSV file directly</label>
+            <input type="file" name="file" accept=".csv">
+          </div>
+          <button class="btn" type="submit">Import file</button>
+        </form>
+
+        <div id="importResult" class="mt12"></div>
+        <div class="modal-actions"><button type="button" class="btn" data-close-modal>Close</button></div>
+      `, (body) => {
+        body.querySelector('[data-close-modal]').addEventListener('click', closeModal);
+        const resultEl = body.querySelector('#importResult');
+
+        function renderResult(res) {
+          resultEl.innerHTML = `
+            <div class="privacy-note" style="background:var(--success-light)">
+              <strong>${res.imported} lead${res.imported === 1 ? '' : 's'} imported</strong>${res.skipped ? `, ${res.skipped} skipped` : ''}.
+            </div>
+            ${res.errors && res.errors.length ? `<ul style="font-size:.82em;color:var(--muted);margin-top:8px">${res.errors.map((e) => `<li>${esc(e)}</li>`).join('')}</ul>` : ''}
+          `;
+        }
+
+        body.querySelector('#sheetImportForm').addEventListener('submit', async (e) => {
+          e.preventDefault();
+          const url = new FormData(e.target).get('sheet_url');
+          if (!url) return;
+          resultEl.innerHTML = `<div class="flex"><div class="spinner"></div> Importing…</div>`;
+          try {
+            const res = await API.post('/api/leads/import', { sheet_url: url });
+            renderResult(res);
+            load();
+          } catch (err) { resultEl.innerHTML = `<div class="privacy-note" style="background:var(--danger-light);color:var(--danger)">${esc(err.message)}</div>`; }
+        });
+
+        body.querySelector('#csvImportForm').addEventListener('submit', async (e) => {
+          e.preventDefault();
+          const file = e.target.querySelector('input[type=file]').files[0];
+          if (!file) return;
+          const fd = new FormData(); fd.append('file', file);
+          resultEl.innerHTML = `<div class="flex"><div class="spinner"></div> Importing…</div>`;
+          try {
+            const res = await API.post('/api/leads/import', fd, true);
+            renderResult(res);
+            load();
+          } catch (err) { resultEl.innerHTML = `<div class="privacy-note" style="background:var(--danger-light);color:var(--danger)">${esc(err.message)}</div>`; }
+        });
+      });
+    }
+
     document.getElementById('newLeadBtn').addEventListener('click', openNewLeadForm);
+    document.getElementById('importLeadsBtn').addEventListener('click', openImportModal);
     await load();
   });
 })();

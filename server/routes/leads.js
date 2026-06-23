@@ -1,5 +1,6 @@
 // server/routes/leads.js
 const express = require('express');
+const multer = require('multer');
 const { db, uuid } = require('../db');
 const { authRequired, requireRole } = require('../middleware/auth');
 const { notifyUser } = require('../utils/notify');
@@ -7,6 +8,8 @@ const { notifyUser } = require('../utils/notify');
 const router = express.Router();
 router.use(authRequired);
 router.use(requireRole('admin', 'marketing'));
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024 } });
 
 const VALID_STATUSES = ['new', 'contacted', 'qualified', 'proposal', 'won', 'lost'];
 
@@ -93,6 +96,135 @@ router.delete('/:id', requireRole('admin'), (req, res) => {
   if (!lead) return res.status(404).json({ error: 'Not found' });
   db.prepare('DELETE FROM leads WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
+});
+
+// ---------------- Import from Google Sheets (or a plain CSV upload) ----------------
+// Required columns (case-insensitive, any order): Name (required), Company, Email,
+// Phone, Source, Value, Notes, Assigned To Email (optional — must match an existing
+// admin/marketing user's email, otherwise the lead defaults to whoever ran the import).
+
+function parseCsv(text) {
+  // Minimal but correct CSV parser: handles quoted fields, escaped quotes (""),
+  // and commas/newlines inside quotes. Good enough for a simple leads sheet.
+  const rows = [];
+  let row = [];
+  let field = '';
+  let inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; }
+        else inQuotes = false;
+      } else field += c;
+    } else if (c === '"') {
+      inQuotes = true;
+    } else if (c === ',') {
+      row.push(field); field = '';
+    } else if (c === '\n' || c === '\r') {
+      if (c === '\r' && text[i + 1] === '\n') i++;
+      row.push(field); field = '';
+      if (row.length > 1 || row[0] !== '') rows.push(row);
+      row = [];
+    } else {
+      field += c;
+    }
+  }
+  if (field !== '' || row.length) { row.push(field); rows.push(row); }
+  return rows;
+}
+
+function extractGoogleSheetExportUrl(sheetUrl) {
+  let parsed;
+  try { parsed = new URL(sheetUrl); } catch (e) { throw new Error('That doesn\'t look like a valid URL.'); }
+  if (parsed.hostname !== 'docs.google.com') {
+    throw new Error('Only Google Sheets links (docs.google.com) are supported.');
+  }
+  const idMatch = parsed.pathname.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  if (!idMatch) throw new Error('Could not find a spreadsheet ID in that link.');
+  const gidMatch = sheetUrl.match(/[?#&]gid=(\d+)/);
+  const gid = gidMatch ? gidMatch[1] : '0';
+  // We build the export URL ourselves from just the extracted ID/gid — we never
+  // fetch the URL the user actually typed, so this can't be used to make the
+  // server fetch arbitrary attacker-controlled URLs.
+  return `https://docs.google.com/spreadsheets/d/${idMatch[1]}/export?format=csv&gid=${gid}`;
+}
+
+function importRows(rows, importerId) {
+  if (!rows.length) return { imported: 0, skipped: 0, errors: ['The sheet appears to be empty.'] };
+  const header = rows[0].map((h) => h.trim().toLowerCase());
+  const col = (name) => header.indexOf(name);
+  const idx = {
+    name: col('name'), company: col('company'), email: col('email'), phone: col('phone'),
+    source: col('source'), value: col('value'), notes: col('notes'),
+    assignedEmail: header.findIndex((h) => h.includes('assigned'))
+  };
+  if (idx.name === -1) {
+    return { imported: 0, skipped: 0, errors: ['No "Name" column found — check the sheet matches the template format.'] };
+  }
+
+  const allUsers = db.prepare("SELECT id, email FROM users WHERE role IN ('admin','marketing') AND active = 1").all();
+  const userByEmail = Object.fromEntries(allUsers.map((u) => [u.email.toLowerCase(), u.id]));
+
+  let imported = 0, skipped = 0;
+  const errors = [];
+  const now = new Date().toISOString();
+  const insert = db.prepare(`INSERT INTO leads (id,name,company,email,phone,source,status,value,notes,assigned_to,created_by,created_at,updated_at)
+    VALUES (?,?,?,?,?,?,'new',?,?,?,?,?,?)`);
+
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r || r.every((c) => !c || !c.trim())) continue; // skip blank rows
+    const name = (r[idx.name] || '').trim();
+    if (!name) { skipped++; errors.push(`Row ${i + 1}: missing a name, skipped.`); continue; }
+
+    let assignedTo = importerId;
+    if (idx.assignedEmail !== -1) {
+      const emailVal = (r[idx.assignedEmail] || '').trim().toLowerCase();
+      if (emailVal && userByEmail[emailVal]) assignedTo = userByEmail[emailVal];
+      else if (emailVal) errors.push(`Row ${i + 1}: "${emailVal}" doesn't match any admin/marketing profile — assigned to you instead.`);
+    }
+
+    insert.run(
+      uuid(), name,
+      idx.company !== -1 ? (r[idx.company] || '').trim() : '',
+      idx.email !== -1 ? (r[idx.email] || '').trim() : '',
+      idx.phone !== -1 ? (r[idx.phone] || '').trim() : '',
+      idx.source !== -1 ? (r[idx.source] || '').trim() : 'Google Sheets import',
+      idx.value !== -1 ? (r[idx.value] || '').trim() : '',
+      idx.notes !== -1 ? (r[idx.notes] || '').trim() : '',
+      assignedTo, importerId, now, now
+    );
+    imported++;
+  }
+  return { imported, skipped, errors };
+}
+
+router.post('/import', upload.single('file'), async (req, res) => {
+  try {
+    let csvText;
+    if (req.file) {
+      csvText = req.file.buffer.toString('utf-8');
+    } else if (req.body && req.body.sheet_url) {
+      const exportUrl = extractGoogleSheetExportUrl(req.body.sheet_url);
+      const resp = await fetch(exportUrl);
+      const contentType = resp.headers.get('content-type') || '';
+      const text = await resp.text();
+      if (!resp.ok || contentType.includes('text/html') || text.trim().startsWith('<')) {
+        return res.status(400).json({ error: 'Could not read that sheet. Make sure sharing is set to "Anyone with the link can view", then try again.' });
+      }
+      csvText = text;
+    } else {
+      return res.status(400).json({ error: 'Provide either a Google Sheets link or upload a CSV file.' });
+    }
+
+    const rows = parseCsv(csvText);
+    if (rows.length > 501) return res.status(400).json({ error: 'That sheet has more than 500 rows — please split it into smaller batches.' });
+    const result = importRows(rows, req.user.id);
+    res.json(result);
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
 });
 
 module.exports = router;
