@@ -14,6 +14,7 @@ const settingsRoutes = require('./routes/settings');
 const dashboardRoutes = require('./routes/dashboard');
 const pushRoutes = require('./routes/push');
 const aiRoutes = require('./routes/ai');
+const reportsRoutes = require('./routes/reports');
 const { photosDir, logoDir } = require('./paths');
 
 const app = express();
@@ -39,6 +40,7 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/push', pushRoutes);
 app.use('/api/ai', aiRoutes);
+app.use('/api/reports', reportsRoutes);
 
 app.get('/api/health', (req, res) => res.json({ ok: true, time: new Date().toISOString() }));
 

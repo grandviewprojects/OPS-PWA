@@ -132,15 +132,13 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
   created_at TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS ai_reports (
+CREATE TABLE IF NOT EXISTS saved_reports (
   id TEXT PRIMARY KEY,
-  type TEXT NOT NULL DEFAULT 'weekly_summary',
-  period_start TEXT,
-  period_end TEXT,
-  content TEXT NOT NULL,
-  stats_json TEXT,
-  generated_by TEXT,
-  created_at TEXT NOT NULL
+  name TEXT NOT NULL,
+  config_json TEXT NOT NULL,
+  created_by TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
 );
 `);
 

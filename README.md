@@ -112,29 +112,46 @@ password immediately. From there:
 
 ---
 
-## 5a. AI features (optional — dispatch suggestions & weekly reports)
+## 5a. AI dispatch suggestions (optional)
 
-The app includes two AI-powered features for admin/operational accounts, both visible under
-the **Reports** tab and on each work order's assignment panel:
+On any work order's assignment panel, admin/operational accounts see a small **✨ Suggest**
+button. It looks at each onsite team member's current workload and calendar availability and
+suggests who to assign — you always review and click "Save assignment" yourself, it never
+assigns automatically. This is the only AI feature left in the app (the reporting system below
+is 100% real data, no AI involved).
 
-- **✨ Suggest assignee** — on any work order, suggests which onsite team member to assign
-  based on current workload and calendar availability. You always review and click "Save
-  assignment" yourself — it never assigns automatically.
-- **Weekly management summaries** — generates a plain-English summary (highlights, concerns,
-  recommendations) from your own work order data for any date range, downloadable as a PDF,
-  with history kept for past reports.
+It's switched off by default and the rest of the app works completely normally without it. To
+turn it on:
 
-These are switched off by default and the rest of the app works completely normally without
-them. To turn them on:
-
-1. Get an API key from **console.anthropic.com** (pay-as-you-go, typically a few cents per
-   summary/suggestion at normal usage)
+1. Get an API key from **console.anthropic.com** (pay-as-you-go, a few cents per suggestion)
 2. Add it as an environment variable called `ANTHROPIC_API_KEY` the same way you added
    `JWT_SECRET` and `DATA_DIR` (on Render: Environment tab → Add Environment Variable)
 3. Redeploy — no code changes needed, it's detected automatically
 
-If the key isn't set, the **Reports** page still shows all your real stats — it just skips the
-AI-written narrative and tells you it's not configured yet, instead of breaking.
+If the key isn't set, clicking "Suggest" just shows a friendly message instead of breaking.
+
+---
+
+## 5b. Reports — customizable analytics (no AI, no setup needed)
+
+The **Reports** tab (admin/operational only) is a real analytics dashboard built entirely from
+your own work order data — there's nothing to configure or pay for, it just works:
+
+- **Trend graphs** — weekly or monthly charts of new work orders, completed jobs, quotes sent,
+  cancellations, average time-to-quote, and SLA breaches. Pick any combination to plot together.
+- **Time-to-quote tracking** — exactly how long it takes from inspection report to quote being
+  sent: average, median, fastest, slowest, and a list of the slowest individual jobs so you can
+  see exactly where the delays are.
+- **Period comparison** — "this period vs. the previous equivalent period" with a clear
+  up/down/percentage indicator on every metric.
+- **Filter by onsite team member** — see the same breakdown for one person instead of the whole
+  team.
+- **Custom date ranges** — quick presets (last 8 weeks, last 12 weeks, last 6/12 months) or pick
+  your own exact start and end dates.
+- **Save your favorite report setups** — name a particular combination of filters/metrics/range
+  and reload it with one click next time, instead of re-configuring it.
+- **Export** — download the underlying data as CSV (for your own spreadsheets), or a formatted
+  PDF snapshot (comparison table, a bar chart, and the slowest quotes) to share or file away.
 
 ---
 
