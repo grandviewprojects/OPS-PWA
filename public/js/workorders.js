@@ -147,7 +147,7 @@
             </div>
             <div id="suggestionPanel"></div>
             <div class="field"><label>Scheduled date/time</label><input type="datetime-local" id="scheduledInput" value="${wo.scheduled_at ? wo.scheduled_at.slice(0,16) : ''}"></div>
-            <button class="btn btn-primary btn-sm" id="saveAssignBtn">Save assignment</button>
+            <p class="muted" style="font-size:.78em">Reassigning or changing the date saves instantly — calendar syncs automatically.</p>
           ` : ''}
           <hr class="sep">
           <div class="field"><label>Update status</label>
@@ -193,14 +193,17 @@
     }
     if (isStaff) {
       document.getElementById('editWoBtn').addEventListener('click', () => openEditWorkOrderForm(wo));
-      document.getElementById('saveAssignBtn').addEventListener('click', async () => {
+
+      async function saveAssignment() {
         const assigned_to = document.getElementById('assignSelect').value || null;
         const schedRaw = document.getElementById('scheduledInput').value;
         try {
           await API.put(`/api/work-orders/${id}`, { assigned_to, scheduled_at: schedRaw ? new Date(schedRaw).toISOString() : null });
           toast('Assignment updated — calendar synced', 'success'); App.render();
         } catch (e) { toast(e.message, 'error'); }
-      });
+      }
+      document.getElementById('assignSelect').addEventListener('change', saveAssignment);
+      document.getElementById('scheduledInput').addEventListener('change', saveAssignment);
       const suggestBtn = document.getElementById('suggestAssigneeBtn');
       if (suggestBtn) suggestBtn.addEventListener('click', async () => {
         const panel = document.getElementById('suggestionPanel');
@@ -214,7 +217,9 @@
             <button class="btn btn-sm btn-primary mt8" id="useSuggestionBtn">Use this suggestion</button>
           </div>`;
           document.getElementById('useSuggestionBtn').addEventListener('click', () => {
-            document.getElementById('assignSelect').value = sug.user_id;
+            const sel = document.getElementById('assignSelect');
+            sel.value = sug.user_id;
+            sel.dispatchEvent(new Event('change')); // trigger auto-save
             panel.innerHTML = '';
           });
         } catch (e) {

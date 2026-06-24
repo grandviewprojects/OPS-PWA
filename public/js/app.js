@@ -458,15 +458,15 @@ const App = (() => {
         `).join('')}
       </div>` : ''}
 
+      <div class="section-title mt20"><h2>Quote pipeline — ${total_active} active</h2></div>
+      <div id="pipelineStages"></div>
+
       <div class="section-title mt20"><h2>🔧 Jobs in progress (${jobs_in_progress.length})</h2></div>
       <div class="card" id="inProgressList" style="padding:8px">
         ${jobs_in_progress.length
           ? jobs_in_progress.map(wo => pipelineWoRow(wo)).join('')
           : '<div class="empty-state" style="padding:8px 0;font-size:.85em">No jobs currently in progress.</div>'}
       </div>
-
-      <div class="section-title mt20"><h2>Quote pipeline — ${total_active} active</h2></div>
-      <div id="pipelineStages"></div>
 
       <div class="section-title mt20"><h2>✅ Jobs completed (${jobs_completed.length})</h2></div>
       <div class="card" id="completedList" style="padding:8px">
