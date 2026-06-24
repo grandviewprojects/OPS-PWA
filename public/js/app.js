@@ -362,16 +362,15 @@ const App = (() => {
     }
 
     // ── Admin / Operational: pipeline dashboard ──────────────────────────────
-    const { pipeline, overdue_quotes, unassigned, stalled_quotes, total_active } = data;
+    const { pipeline, jobs_in_progress, jobs_completed, overdue_quotes, unassigned, stalled_quotes, total_active } = data;
 
-    // Stage config for display
     const STAGES = [
-      { key: 'new',                  label: 'New',              emoji: '📥', color: '#6c757d', next: 'Assign someone' },
+      { key: 'new',                  label: 'New',               emoji: '📥', color: '#6c757d', next: 'Assign someone' },
       { key: 'assigned',             label: 'Assessment Pending', emoji: '📋', color: '#0d6efd', next: 'Complete assessment' },
-      { key: 'in_progress',          label: 'Report Pending',   emoji: '📝', color: '#fd7e14', next: 'Submit inspection report' },
-      { key: 'inspection_submitted', label: 'Quote Needed',     emoji: '💰', color: '#dc3545', next: 'Send quote to client' },
-      { key: 'quote_sent',           label: 'Quote Sent',       emoji: '⏳', color: '#6f42c1', next: 'Awaiting client approval' },
-      { key: 'completed',            label: 'Completed',        emoji: '✅', color: '#198754', next: '' },
+      { key: 'in_progress',          label: 'In Progress',        emoji: '🔧', color: '#fd7e14', next: '' },
+      { key: 'inspection_submitted', label: 'Quote Needed',       emoji: '💰', color: '#dc3545', next: 'Send quote to client' },
+      { key: 'quote_sent',           label: 'Quote Sent',         emoji: '⏳', color: '#6f42c1', next: 'Awaiting client approval' },
+      { key: 'completed',            label: 'Completed',          emoji: '✅', color: '#198754', next: '' },
     ];
 
     function stageFor(key) { return STAGES.find(s => s.key === key) || {}; }
@@ -406,7 +405,7 @@ const App = (() => {
       </div>`;
     }
 
-    // Build attention alerts
+    // Needs-attention alerts
     const attentionItems = [
       ...overdue_quotes.map(wo => ({
         wo, label: 'Quote overdue', bg: 'var(--danger-light)', border: 'var(--danger)',
@@ -421,11 +420,10 @@ const App = (() => {
         sub: `Quote sent ${fmtDate(wo.quote_sent_at)} · ${wo.assignee_name || 'Unassigned'}`
       })),
     ];
-    // Deduplicate by wo id (a quote can be overdue AND unassigned)
     const seen = new Set();
     const dedupedAlerts = attentionItems.filter(a => { if (seen.has(a.wo.id)) return false; seen.add(a.wo.id); return true; });
 
-    // Pipeline summary bar
+    // Summary bar
     const summaryBar = STAGES.map(st => {
       const bucket = pipeline.find(p => p.key === st.key) || { count: 0 };
       return `<div class="pipeline-summary-cell" title="${st.label}">
@@ -440,10 +438,8 @@ const App = (() => {
         <a href="#/work-orders" class="btn btn-sm">All work orders</a>
       </div>
 
-      <!-- Pipeline summary bar -->
       <div class="card pipeline-summary-bar">${summaryBar}</div>
 
-      <!-- Needs attention -->
       ${dedupedAlerts.length ? `
       <div class="section-title mt20"><h2 style="color:var(--danger)">⚠️ Needs attention (${dedupedAlerts.length})</h2></div>
       <div class="card" id="alertsList">
@@ -462,17 +458,29 @@ const App = (() => {
         `).join('')}
       </div>` : ''}
 
-      <!-- Full pipeline stages -->
-      <div class="section-title mt20"><h2>Full pipeline — ${total_active} active</h2></div>
+      <div class="section-title mt20"><h2>🔧 Jobs in progress (${jobs_in_progress.length})</h2></div>
+      <div class="card" id="inProgressList" style="padding:8px">
+        ${jobs_in_progress.length
+          ? jobs_in_progress.map(wo => pipelineWoRow(wo)).join('')
+          : '<div class="empty-state" style="padding:8px 0;font-size:.85em">No jobs currently in progress.</div>'}
+      </div>
+
+      <div class="section-title mt20"><h2>Quote pipeline — ${total_active} active</h2></div>
       <div id="pipelineStages"></div>
+
+      <div class="section-title mt20"><h2>✅ Jobs completed (${jobs_completed.length})</h2></div>
+      <div class="card" id="completedList" style="padding:8px">
+        ${jobs_completed.length
+          ? jobs_completed.map(wo => pipelineWoRow(wo)).join('')
+          : '<div class="empty-state" style="padding:8px 0;font-size:.85em">No completed jobs yet.</div>'}
+      </div>
     `;
 
-    // Render each pipeline stage
+    // Quote pipeline stages only (in_progress and completed have their own sections above)
+    const QUOTE_STAGES = STAGES.filter(s => !['in_progress', 'completed'].includes(s.key));
     const stagesEl = document.getElementById('pipelineStages');
-    STAGES.forEach(st => {
+    QUOTE_STAGES.forEach(st => {
       const bucket = pipeline.find(p => p.key === st.key) || { count: 0, items: [] };
-      if (bucket.count === 0 && st.key === 'completed') return; // hide completed if empty
-
       const sectionEl = document.createElement('div');
       sectionEl.style.marginBottom = '16px';
       sectionEl.innerHTML = `
@@ -492,16 +500,13 @@ const App = (() => {
       stagesEl.appendChild(sectionEl);
     });
 
-    // Attach clicks to all pipeline rows
     view.querySelectorAll('.pipeline-row[data-wo]').forEach(el =>
       el.addEventListener('click', () => navigate(`/work-orders/${el.dataset.wo}`))
     );
-    if (document.getElementById('alertsList')) {
-      attachWoClicks(document.getElementById('alertsList'));
-    }
+    if (document.getElementById('alertsList')) attachWoClicks(document.getElementById('alertsList'));
   });
 
-  function woListItem(wo) {
+    function woListItem(wo) {
     const sla = slaInfo(wo);
     return `<div class="list-item" data-wo="${wo.id}">
       <div>

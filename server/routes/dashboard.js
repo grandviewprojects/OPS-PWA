@@ -6,19 +6,15 @@ const { authRequired } = require('../middleware/auth');
 const router = express.Router();
 router.use(authRequired);
 
-// Pipeline stage order & metadata
 const PIPELINE_STAGES = [
-  { key: 'new',                  label: 'New',              hint: 'Received — not yet assigned',               color: '#6c757d' },
-  { key: 'assigned',             label: 'Assessment Pending', hint: 'Assigned — assessment not yet done',      color: '#0d6efd' },
-  { key: 'in_progress',          label: 'Report Pending',   hint: 'Assessment done — report being prepared',   color: '#fd7e14' },
-  { key: 'inspection_submitted', label: 'Quote Needed',     hint: 'Report in — quote not yet sent',            color: '#dc3545' },
-  { key: 'quote_sent',           label: 'Quote Sent',       hint: 'Quote sent — awaiting client approval',     color: '#6f42c1' },
-  { key: 'completed',            label: 'Completed',        hint: 'Work done',                                 color: '#198754' },
+  { key: 'new',                  label: 'New',               hint: 'Received — not yet assigned',             color: '#6c757d' },
+  { key: 'assigned',             label: 'Assessment Pending', hint: 'Assigned — assessment not yet done',     color: '#0d6efd' },
+  { key: 'in_progress',          label: 'In Progress',        hint: 'Work actively underway',                 color: '#fd7e14' },
+  { key: 'inspection_submitted', label: 'Quote Needed',       hint: 'Report in — quote not yet sent',         color: '#dc3545' },
+  { key: 'quote_sent',           label: 'Quote Sent',         hint: 'Quote sent — awaiting client approval',  color: '#6f42c1' },
+  { key: 'completed',            label: 'Completed',          hint: 'Work done',                              color: '#198754' },
 ];
 
-const STAGE_ORDER = { new: 0, assigned: 1, in_progress: 2, inspection_submitted: 3, quote_sent: 4, completed: 5 };
-
-// How many days a work order has been at its current stage
 function daysInStage(wo) {
   const now = Date.now();
   let since;
@@ -46,8 +42,7 @@ router.get('/', (req, res) => {
     return res.json({ role: 'onsite', my_work_orders: myOrders, upcoming_events: upcomingEvents });
   }
 
-  // ── Admin / Operational: full pipeline ────────────────────────────────────
-  // All non-cancelled work orders with assignee name
+  // ── Admin / Operational ───────────────────────────────────────────────────
   const allActive = db.prepare(`
     SELECT wo.*, u.name AS assignee_name
     FROM work_orders wo
@@ -66,15 +61,18 @@ router.get('/', (req, res) => {
       wo.created_at ASC
   `).all();
 
-  // Annotate each with days-in-stage
   allActive.forEach(wo => { wo.days_in_stage = daysInStage(wo); });
 
-  // Build pipeline buckets
+  // Pipeline buckets (all stages — used for the summary bar counts)
   const pipeline = PIPELINE_STAGES.map(stage => ({
     ...stage,
     count: allActive.filter(wo => wo.status === stage.key).length,
     items: allActive.filter(wo => wo.status === stage.key),
   }));
+
+  // Dedicated sections
+  const jobsInProgress = allActive.filter(wo => wo.status === 'in_progress');
+  const jobsCompleted  = allActive.filter(wo => wo.status === 'completed');
 
   // Needs-attention slices
   const overdueQuotes = allActive.filter(
@@ -83,7 +81,6 @@ router.get('/', (req, res) => {
   const unassigned = allActive.filter(
     wo => !wo.assigned_to && !['completed', 'cancelled'].includes(wo.status)
   );
-  // Quotes sent more than 7 days ago (no response?)
   const stalledQuotes = allActive.filter(wo => {
     if (wo.status !== 'quote_sent' || !wo.quote_sent_at) return false;
     return (Date.now() - new Date(wo.quote_sent_at).getTime()) > 7 * 24 * 60 * 60 * 1000;
@@ -92,10 +89,12 @@ router.get('/', (req, res) => {
   res.json({
     role: req.user.role,
     pipeline,
-    overdue_quotes: overdueQuotes,
+    jobs_in_progress: jobsInProgress,
+    jobs_completed:   jobsCompleted,
+    overdue_quotes:   overdueQuotes,
     unassigned,
-    stalled_quotes: stalledQuotes,
-    total_active: allActive.filter(wo => wo.status !== 'completed').length,
+    stalled_quotes:   stalledQuotes,
+    total_active: allActive.filter(wo => !['completed', 'cancelled'].includes(wo.status)).length,
   });
 });
 
