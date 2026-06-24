@@ -313,6 +313,7 @@ const App = (() => {
   route('/dashboard', async () => {
     const view = document.getElementById('view');
 
+    // ── Marketing role: unchanged ────────────────────────────────────────────
     if (state.user.role === 'marketing') {
       const [{ leads }, { tasks }] = await Promise.all([API.get('/api/leads'), API.get('/api/tasks')]);
       const stageCounts = {};
@@ -320,7 +321,6 @@ const App = (() => {
       leads.forEach((l) => { stageCounts[l.status] = (stageCounts[l.status] || 0) + 1; });
       const openTasks = tasks.filter((t) => t.status !== 'completed' && t.status !== 'cancelled');
       const recentLeads = [...leads].sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at)).slice(0, 6);
-
       view.innerHTML = `
         <div class="section-title"><h2>🎯 Sales Overview</h2><a href="#/leads" class="btn btn-sm">Open pipeline</a></div>
         <div class="grid grid-4">
@@ -329,12 +329,10 @@ const App = (() => {
           <div class="card stat-card"><div class="num">${stageCounts.proposal}</div><div class="label">Proposal sent</div></div>
           <div class="card stat-card" style="border-color:var(--success);background:var(--success-light)"><div class="num" style="color:var(--success)">${stageCounts.won}</div><div class="label">Won</div></div>
         </div>
-
         <div class="section-title mt20"><h2>My open tasks</h2><a href="#/tasks" class="btn btn-sm">View all</a></div>
         <div class="card">${openTasks.length ? openTasks.slice(0, 5).map((t) => `
           <div class="list-item" style="cursor:default"><div><div class="title">${esc(t.title)}</div><div class="meta">${t.due_at ? 'Due ' + fmtDateTime(t.due_at) : 'No deadline'}</div></div></div>
         `).join('') : '<div class="empty-state">No open tasks. 🎉</div>'}</div>
-
         <div class="section-title mt20"><h2>Recently updated leads</h2></div>
         <div class="card">${recentLeads.length ? recentLeads.map((l) => `
           <div class="list-item" style="cursor:default"><div><div class="title">${esc(l.name)}</div><div class="meta">${esc(l.company || '')}${l.assignee_name ? ' · ' + esc(l.assignee_name) : ''}</div></div><span class="badge" style="background:#eee">${l.status}</span></div>
@@ -345,6 +343,7 @@ const App = (() => {
 
     const data = await API.get('/api/dashboard');
 
+    // ── Onsite role: unchanged ───────────────────────────────────────────────
     if (data.role === 'onsite') {
       view.innerHTML = `
         <div class="section-title"><h2>My upcoming work</h2></div>
@@ -355,34 +354,151 @@ const App = (() => {
         `).join('') : '<div class="empty-state">Nothing scheduled yet.</div>'}</div>
       `;
       const ordersEl = document.getElementById('myOrders');
-      ordersEl.innerHTML = data.my_work_orders.length ? data.my_work_orders.map(wo => woListItem(wo)).join('') : `<div class="card empty-state">🎉 No active work orders assigned to you.</div>`;
+      ordersEl.innerHTML = data.my_work_orders.length
+        ? data.my_work_orders.map(wo => woListItem(wo)).join('')
+        : `<div class="card empty-state">🎉 No active work orders assigned to you.</div>`;
       attachWoClicks(ordersEl);
       return;
     }
 
-    const counts = {}; data.status_counts.forEach(c => counts[c.status] = c.c);
+    // ── Admin / Operational: pipeline dashboard ──────────────────────────────
+    const { pipeline, overdue_quotes, unassigned, stalled_quotes, total_active } = data;
+
+    // Stage config for display
+    const STAGES = [
+      { key: 'new',                  label: 'New',              emoji: '📥', color: '#6c757d', next: 'Assign someone' },
+      { key: 'assigned',             label: 'Assessment Pending', emoji: '📋', color: '#0d6efd', next: 'Complete assessment' },
+      { key: 'in_progress',          label: 'Report Pending',   emoji: '📝', color: '#fd7e14', next: 'Submit inspection report' },
+      { key: 'inspection_submitted', label: 'Quote Needed',     emoji: '💰', color: '#dc3545', next: 'Send quote to client' },
+      { key: 'quote_sent',           label: 'Quote Sent',       emoji: '⏳', color: '#6f42c1', next: 'Awaiting client approval' },
+      { key: 'completed',            label: 'Completed',        emoji: '✅', color: '#198754', next: '' },
+    ];
+
+    function stageFor(key) { return STAGES.find(s => s.key === key) || {}; }
+
+    function daysLabel(n) {
+      if (n === null || n === undefined) return '';
+      if (n === 0) return 'today';
+      if (n === 1) return '1 day';
+      return `${n} days`;
+    }
+
+    function pipelineWoRow(wo) {
+      const st = stageFor(wo.status);
+      const days = wo.days_in_stage;
+      const daysStr = daysLabel(days);
+      const isOverdue = wo.status === 'inspection_submitted' && wo.quote_due_at && wo.quote_due_at < new Date().toISOString();
+      const isStalled = wo.status === 'quote_sent' && days > 7;
+      const urgency = isOverdue ? 'color:var(--danger);font-weight:600' : isStalled ? 'color:#fd7e14;font-weight:600' : 'color:var(--muted)';
+      return `<div class="list-item pipeline-row" data-wo="${wo.id}" style="border-left:3px solid ${st.color || '#ddd'};padding-left:12px;margin-bottom:4px">
+        <div style="flex:1;min-width:0">
+          <div class="title" style="margin-bottom:2px">${esc(wo.reference)} — ${esc(wo.title)}</div>
+          <div class="meta">${esc(wo.client_name || 'No client')}${wo.site_address ? ' · ' + esc(wo.site_address) : ''}</div>
+          ${wo.assignee_name ? `<div class="meta">👤 ${esc(wo.assignee_name)}</div>` : '<div class="meta" style="color:var(--danger)">⚠️ Unassigned</div>'}
+        </div>
+        <div class="text-right" style="flex-shrink:0;margin-left:12px">
+          ${daysStr ? `<div style="${urgency};font-size:.8em">${daysStr} at this stage</div>` : ''}
+          ${isOverdue ? `<div style="color:var(--danger);font-size:.75em;font-weight:600">QUOTE OVERDUE</div>` : ''}
+          ${isStalled ? `<div style="color:#fd7e14;font-size:.75em;font-weight:600">NO RESPONSE YET</div>` : ''}
+          ${wo.quote_due_at && wo.status === 'inspection_submitted' && !isOverdue
+            ? `<div style="color:var(--muted);font-size:.75em">Due ${fmtDate(wo.quote_due_at)}</div>` : ''}
+        </div>
+      </div>`;
+    }
+
+    // Build attention alerts
+    const attentionItems = [
+      ...overdue_quotes.map(wo => ({
+        wo, label: 'Quote overdue', bg: 'var(--danger-light)', border: 'var(--danger)',
+        sub: `Since ${fmtDate(wo.quote_due_at)} · ${wo.assignee_name || 'Unassigned'}`
+      })),
+      ...unassigned.map(wo => ({
+        wo, label: 'Unassigned', bg: '#fff3cd', border: '#ffc107',
+        sub: `Received ${fmtDate(wo.created_at)} · ${statusLabel(wo.status)}`
+      })),
+      ...stalled_quotes.map(wo => ({
+        wo, label: 'No client response', bg: '#fff0e6', border: '#fd7e14',
+        sub: `Quote sent ${fmtDate(wo.quote_sent_at)} · ${wo.assignee_name || 'Unassigned'}`
+      })),
+    ];
+    // Deduplicate by wo id (a quote can be overdue AND unassigned)
+    const seen = new Set();
+    const dedupedAlerts = attentionItems.filter(a => { if (seen.has(a.wo.id)) return false; seen.add(a.wo.id); return true; });
+
+    // Pipeline summary bar
+    const summaryBar = STAGES.map(st => {
+      const bucket = pipeline.find(p => p.key === st.key) || { count: 0 };
+      return `<div class="pipeline-summary-cell" title="${st.label}">
+        <div class="pipeline-summary-count" style="color:${st.color}">${bucket.count}</div>
+        <div class="pipeline-summary-label">${st.emoji} ${st.label}</div>
+      </div>`;
+    }).join('<div class="pipeline-summary-arrow">›</div>');
+
     view.innerHTML = `
-      <div class="grid grid-4">
-        <div class="card stat-card"><div class="num">${counts.new || 0}</div><div class="label">New Requests</div></div>
-        <div class="card stat-card"><div class="num">${(data.unassigned_work_orders || []).length}</div><div class="label">Unassigned</div></div>
-        <div class="card stat-card"><div class="num">${(counts.inspection_submitted || 0)}</div><div class="label">Awaiting Quote</div></div>
-        <div class="card stat-card" style="${data.overdue_quotes.length ? 'border-color:var(--danger);background:var(--danger-light)' : ''}"><div class="num" style="${data.overdue_quotes.length ? 'color:var(--danger)' : ''}">${data.overdue_quotes.length}</div><div class="label">Overdue Quotes</div></div>
+      <div class="section-title" style="margin-bottom:8px">
+        <h2>Operations Pipeline</h2>
+        <a href="#/work-orders" class="btn btn-sm">All work orders</a>
       </div>
 
-      ${data.overdue_quotes.length ? `
-      <div class="section-title"><h2 style="color:var(--danger)">⏰ Overdue quotes — act now</h2></div>
-      <div class="card">${data.overdue_quotes.map(wo => woListItem(wo)).join('')}</div>` : ''}
+      <!-- Pipeline summary bar -->
+      <div class="card pipeline-summary-bar">${summaryBar}</div>
 
-      <div class="section-title"><h2>Awaiting quote (within SLA)</h2></div>
-      <div class="card" id="dueSoon">${data.due_soon_quotes.length ? data.due_soon_quotes.map(wo => woListItem(wo)).join('') : '<div class="empty-state">Nothing awaiting a quote right now.</div>'}</div>
+      <!-- Needs attention -->
+      ${dedupedAlerts.length ? `
+      <div class="section-title mt20"><h2 style="color:var(--danger)">⚠️ Needs attention (${dedupedAlerts.length})</h2></div>
+      <div class="card" id="alertsList">
+        ${dedupedAlerts.map(({ wo, label, bg, border, sub }) => `
+          <div class="list-item pipeline-row" data-wo="${wo.id}"
+               style="border-left:4px solid ${border};background:${bg};padding-left:12px;margin-bottom:4px">
+            <div style="flex:1;min-width:0">
+              <div class="title">${esc(wo.reference)} — ${esc(wo.title)}</div>
+              <div class="meta">${esc(wo.client_name || '')}${wo.site_address ? ' · ' + esc(wo.site_address) : ''}</div>
+              <div class="meta">${sub}</div>
+            </div>
+            <div class="text-right" style="flex-shrink:0;margin-left:12px">
+              <span class="badge" style="background:${border};color:#fff">${label}</span>
+            </div>
+          </div>
+        `).join('')}
+      </div>` : ''}
 
-      <div class="section-title"><h2>New requests from the portal</h2><a href="#/work-orders" class="btn btn-sm">View all work orders</a></div>
-      <div class="card" id="newReqs">${data.new_requests.length ? data.new_requests.map(wo => woListItem(wo)).join('') : '<div class="empty-state">No new requests.</div>'}</div>
-
-      <div class="section-title"><h2>Unassigned work orders</h2></div>
-      <div class="card" id="unassigned">${data.unassigned_work_orders.length ? data.unassigned_work_orders.map(wo => woListItem(wo)).join('') : '<div class="empty-state">Everything is assigned. 👍</div>'}</div>
+      <!-- Full pipeline stages -->
+      <div class="section-title mt20"><h2>Full pipeline — ${total_active} active</h2></div>
+      <div id="pipelineStages"></div>
     `;
-    ['dueSoon', 'newReqs', 'unassigned'].forEach(id => attachWoClicks(document.getElementById(id)));
+
+    // Render each pipeline stage
+    const stagesEl = document.getElementById('pipelineStages');
+    STAGES.forEach(st => {
+      const bucket = pipeline.find(p => p.key === st.key) || { count: 0, items: [] };
+      if (bucket.count === 0 && st.key === 'completed') return; // hide completed if empty
+
+      const sectionEl = document.createElement('div');
+      sectionEl.style.marginBottom = '16px';
+      sectionEl.innerHTML = `
+        <div class="section-title" style="margin-bottom:6px;margin-top:0">
+          <h3 style="color:${st.color};font-size:1em;margin:0">
+            ${st.emoji} ${st.label}
+            <span style="font-weight:400;color:var(--muted);font-size:.9em">(${bucket.count})</span>
+          </h3>
+          ${st.next ? `<span style="font-size:.78em;color:var(--muted);font-style:italic">Next step: ${st.next}</span>` : ''}
+        </div>
+        <div class="card stage-bucket" style="padding:8px">
+          ${bucket.items.length
+            ? bucket.items.map(wo => pipelineWoRow(wo)).join('')
+            : `<div class="empty-state" style="padding:8px 0;font-size:.85em">Nothing here right now</div>`}
+        </div>
+      `;
+      stagesEl.appendChild(sectionEl);
+    });
+
+    // Attach clicks to all pipeline rows
+    view.querySelectorAll('.pipeline-row[data-wo]').forEach(el =>
+      el.addEventListener('click', () => navigate(`/work-orders/${el.dataset.wo}`))
+    );
+    if (document.getElementById('alertsList')) {
+      attachWoClicks(document.getElementById('alertsList'));
+    }
   });
 
   function woListItem(wo) {
@@ -403,7 +519,7 @@ const App = (() => {
     container.querySelectorAll('[data-wo]').forEach(el => el.addEventListener('click', () => navigate(`/work-orders/${el.dataset.wo}`)));
   }
 
-  // ---------- Account / change password ----------
+    // ---------- Account / change password ----------
   // Notification categories are shared with the admin-only Settings page,
   // which is where notification preferences now live (per-profile, admin-managed).
   const NOTIF_CATEGORIES = [

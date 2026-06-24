@@ -242,3 +242,46 @@ table.simple th { color: var(--muted); font-size: 0.78em; text-transform: upperc
   main.content { padding: 10px; }
   .login-card { padding: 26px 20px; }
 }
+
+/* ── Pipeline dashboard ─────────────────────────────────────────── */
+.pipeline-summary-bar {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 12px 16px;
+  overflow-x: auto;
+  flex-wrap: nowrap;
+}
+.pipeline-summary-cell {
+  text-align: center;
+  min-width: 80px;
+  flex: 1;
+}
+.pipeline-summary-count {
+  font-size: 1.8em;
+  font-weight: 700;
+  line-height: 1;
+}
+.pipeline-summary-label {
+  font-size: .7em;
+  color: var(--muted);
+  margin-top: 4px;
+  white-space: nowrap;
+}
+.pipeline-summary-arrow {
+  color: var(--muted);
+  font-size: 1.4em;
+  padding: 0 4px;
+  flex-shrink: 0;
+}
+.pipeline-row {
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background .15s;
+}
+.pipeline-row:hover {
+  background: var(--bg) !important;
+}
+.stage-bucket {
+  padding: 8px !important;
+}
