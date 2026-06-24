@@ -42,7 +42,10 @@ function runHourlyReminderCheck() {
     const enabled = ev.push_event_reminder === null || ev.push_event_reminder === undefined ? true : !!ev.push_event_reminder;
     if (!enabled) return;
 
-    const startTime = new Date(ev.start_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    // Use the configured timezone so the time in the message matches what the
+    // user sees on their device, rather than the server's clock (which is UTC).
+    const tz = getSetting('notification_timezone', 'Africa/Johannesburg');
+    const startTime = new Date(ev.start_at).toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit', timeZone: tz });
     notifyUser(ev.user_id, 'event_reminder', `Reminder: "${ev.title}" starts at ${startTime} — about an hour from now.`, '#/calendar');
   });
 }

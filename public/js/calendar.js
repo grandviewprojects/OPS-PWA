@@ -122,8 +122,14 @@
     }
 
     function openEventForm(prefillDate) {
-      const startDefault = prefillDate ? prefillDate.toISOString().slice(0, 16) : '';
-      const endDefault = prefillDate ? new Date(prefillDate.getTime() + 60 * 60 * 1000).toISOString().slice(0, 16) : '';
+      // toISOString() gives UTC — subtract the timezone offset to get local time
+      // so the datetime-local input shows the time the user clicked, not UTC.
+      function toLocalInputValue(d) {
+        const offset = d.getTimezoneOffset() * 60000;
+        return new Date(d.getTime() - offset).toISOString().slice(0, 16);
+      }
+      const startDefault = prefillDate ? toLocalInputValue(prefillDate) : '';
+      const endDefault = prefillDate ? toLocalInputValue(new Date(prefillDate.getTime() + 60 * 60 * 1000)) : '';
       openModal('Add Calendar Event', `
         <form id="evForm">
           ${isStaff ? `<div class="field"><label>Assign to</label><select name="user_id" required>
