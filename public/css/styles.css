@@ -285,3 +285,83 @@ table.simple th { color: var(--muted); font-size: 0.78em; text-transform: upperc
 .stage-bucket {
   padding: 8px !important;
 }
+
+/* ---------- quote_accepted badge ---------- */
+.badge-quote_accepted { background: #ccfbf1; color: #0f766e; }
+.badge-pending_approval { background: #fef3c7; color: #b45309; }
+.badge-approved { background: #d1fae5; color: #047857; }
+.badge-rejected { background: #fee2e2; color: #b91c1c; }
+.badge-accepted { background: #ccfbf1; color: #0f766e; }
+.badge-sent { background: #d1fae5; color: #047857; }
+.badge-draft { background: #e5e7eb; color: #374151; }
+
+/* ---------- Tasks tab notification dot ---------- */
+.tabbar a { position: relative; }
+.tab-dot {
+  display: inline-block; width: 8px; height: 8px; background: var(--danger);
+  border-radius: 50%; margin-left: 5px; vertical-align: middle;
+}
+
+/* ============================================================
+   MOBILE OPTIMISATION
+   ============================================================ */
+@media (max-width: 600px) {
+  main.content { padding: 12px 10px; }
+  .card { padding: 13px; margin-bottom: 11px; }
+
+  /* Top bar tightens up so brand + actions never collide */
+  .topbar { padding: 9px 12px; }
+  .topbar .brand { font-size: 0.98em; }
+  .topbar .brand img { height: 24px; }
+  .topbar .actions { gap: 6px; }
+
+  /* Tab bar scrolls horizontally with comfortable tap targets */
+  .tabbar { padding: 0 4px; }
+  .tabbar a { padding: 12px 11px; font-size: 0.85em; }
+
+  /* Section titles wrap instead of overlapping their action button */
+  .section-title { flex-wrap: wrap; gap: 6px; }
+  .section-title h2, .section-title h3 { font-size: 1em; line-height: 1.3; word-break: break-word; }
+
+  /* Two-column detail grids stack */
+  .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
+
+  /* Pipeline rows: right-hand meta drops below the title rather than squashing it */
+  .pipeline-row { flex-wrap: wrap; }
+  .pipeline-row .text-right { text-align: left !important; margin-left: 0 !important; margin-top: 4px; width: 100%; }
+
+  /* Generic list items wrap their trailing content */
+  .list-item { flex-wrap: wrap; }
+  .list-item .text-right { text-align: left; width: 100%; margin-top: 4px; }
+
+  /* Pipeline summary bar: tighter cells so all stages fit / scroll cleanly */
+  .pipeline-summary-bar { padding: 10px 8px; }
+  .pipeline-summary-cell { min-width: 56px; }
+  .pipeline-summary-count { font-size: 1.35em; }
+  .pipeline-summary-label { font-size: 0.6em; }
+  .pipeline-summary-arrow { font-size: 1em; padding: 0 1px; }
+
+  /* Stat cards go 2-up */
+  .grid-4 { grid-template-columns: repeat(2, 1fr); }
+
+  /* Tables become horizontally scrollable rather than overflowing the screen */
+  table.simple { display: block; overflow-x: auto; white-space: nowrap; }
+  table.simple th, table.simple td { white-space: normal; }
+
+  /* Modals use more of the screen on phones */
+  .modal { width: 96vw !important; max-width: 96vw !important; max-height: 92vh; }
+  .modal-actions { flex-wrap: wrap; gap: 8px; }
+  .modal-actions .btn { flex: 1; min-width: 120px; }
+
+  /* Inputs at 16px prevent iOS auto-zoom on focus */
+  input, select, textarea { font-size: 16px; }
+
+  /* Quote line-item table: keep inputs from overflowing */
+  #quoteItemsTable input.qi-name { min-width: 90px; }
+}
+
+@media (max-width: 380px) {
+  .pipeline-summary-label { font-size: 0.54em; }
+  .tabbar a { padding: 11px 9px; font-size: 0.8em; }
+  .btn { padding: 9px 11px; }
+}

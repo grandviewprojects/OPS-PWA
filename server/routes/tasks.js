@@ -35,7 +35,19 @@ router.get('/', (req, res) => {
     params.push(req.query.assigned_to);
   }
   if (req.query.status) { sql += ' AND t.status = ?'; params.push(req.query.status); }
-  sql += ' ORDER BY (t.due_at IS NULL), t.due_at, t.created_at DESC';
+
+  // Completed/cancelled tasks always sink to the bottom. Within each group,
+  // the sort param controls order (default: newest first).
+  const sort = req.query.sort || 'newest';
+  const doneRank = "CASE WHEN t.status IN ('completed','cancelled') THEN 1 ELSE 0 END";
+  let ordering;
+  switch (sort) {
+    case 'oldest':   ordering = `${doneRank} ASC, t.created_at ASC`; break;
+    case 'due':      ordering = `${doneRank} ASC, (t.due_at IS NULL), t.due_at ASC, t.created_at DESC`; break;
+    case 'newest':
+    default:         ordering = `${doneRank} ASC, t.created_at DESC`; break;
+  }
+  sql += ` ORDER BY ${ordering}`;
   res.json({ tasks: db.prepare(sql).all(...params) });
 });
 

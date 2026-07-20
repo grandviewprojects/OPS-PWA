@@ -2,7 +2,7 @@
 (() => {
   const { route, navigate, openModal, closeModal, toast, esc, fmtDate, fmtDateTime, statusLabel, slaInfo } = App;
 
-  const STATUS_FLOW = ['new', 'assigned', 'in_progress', 'inspection_submitted', 'quote_sent', 'completed'];
+  const STATUS_FLOW = ['new', 'assigned', 'in_progress', 'inspection_submitted', 'quote_sent', 'quote_accepted', 'completed'];
 
   function genId() {
     if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID();
@@ -109,8 +109,10 @@
     if (isStaff) teamUsers = (await API.get('/api/users')).users.filter(x => x.role === 'onsite' && x.active !== 0);
 
     const isAdmin = u.role === 'admin';
+    const back = App.backTarget('/work-orders');
+    const backLabel = back === '/dashboard' ? '&larr; Back to dashboard' : '&larr; Back to work orders';
     view.innerHTML = `
-      <a href="#/work-orders" class="muted">&larr; Back to work orders</a>
+      <a href="#${back}" class="muted">${backLabel}</a>
       <div class="section-title mt12">
         <h2>${esc(wo.reference)} — ${esc(wo.title)}</h2>
         <div class="flex">
@@ -163,14 +165,39 @@
 
       <div class="card" id="jobCardCard"></div>
 
+      <div class="card" id="quotesCard"></div>
+
       <div class="card">
-        <h3>Activity</h3>
-        <div>${data.activity.map(a => `<div class="list-item" style="cursor:default"><div><div>${esc(a.message)}</div><div class="meta">${fmtDateTime(a.created_at)}</div></div></div>`).join('') || '<div class="empty-state">No activity yet.</div>'}</div>
+        <h3>Notes &amp; Activity</h3>
+        ${isStaff || wo.assigned_to === u.id ? `
+        <div class="field" style="margin-bottom:8px">
+          <textarea id="noteInput" placeholder="Add a note or comment…" rows="2" style="width:100%"></textarea>
+          <button class="btn btn-sm btn-primary mt8" id="addNoteBtn">Add note</button>
+        </div>` : ''}
+        <div id="activityList">${data.activity.map(a => `<div class="list-item" style="cursor:default"><div><div>${esc(a.message)}</div><div class="meta">${fmtDateTime(a.created_at)}</div></div></div>`).join('') || '<div class="empty-state">No activity yet.</div>'}</div>
       </div>
     `;
 
     renderInspectionCard(document.getElementById('inspectionCard'), wo, data.inspection_report, isStaff);
     renderJobCard(document.getElementById('jobCardCard'), wo, data.job_card, isStaff);
+    renderQuotesCard(document.getElementById('quotesCard'), wo, isStaff, isAdmin);
+
+    // Add-note handler
+    const addNoteBtn = document.getElementById('addNoteBtn');
+    if (addNoteBtn) addNoteBtn.addEventListener('click', async () => {
+      const input = document.getElementById('noteInput');
+      const message = input.value.trim();
+      if (!message) return;
+      addNoteBtn.disabled = true;
+      try {
+        const res = await API.post(`/api/work-orders/${id}/notes`, { message });
+        input.value = '';
+        const list = document.getElementById('activityList');
+        list.innerHTML = res.activity.map(a => `<div class="list-item" style="cursor:default"><div><div>${esc(a.message)}</div><div class="meta">${fmtDateTime(a.created_at)}</div></div></div>`).join('');
+        toast('Note added', 'success');
+      } catch (e) { toast(e.message, 'error'); }
+      addNoteBtn.disabled = false;
+    });
 
     if (isAdmin) {
       document.getElementById('deleteWoBtn').addEventListener('click', () => {
@@ -268,6 +295,206 @@
   }
 
   // ---------------- Job card on work order page (operations -> onsite, the mirror of the inspection report) ----------------
+  // ---------------- Quotes card on work order page ----------------
+  const QUOTE_STATUS_LABEL = {
+    draft: 'Draft', pending_approval: 'Pending approval', approved: 'Approved',
+    rejected: 'Needs changes', sent: 'Sent', accepted: 'Accepted'
+  };
+  const money = (v) => 'R' + (Number(v) || 0).toFixed(2);
+
+  async function renderQuotesCard(el, wo, isStaff, isAdmin) {
+    if (!el) return;
+    let quotes = [];
+    try { quotes = (await API.get(`/api/work-orders/${wo.id}/quotes`)).quotes; } catch (e) {}
+
+    el.innerHTML = `
+      <div class="flex-between">
+        <h3>Quotes</h3>
+        ${isStaff ? `<button class="btn btn-primary btn-sm" id="newQuoteBtn">+ Create quote</button>` : ''}
+      </div>
+      ${quotes.length ? `<div id="quoteList">${quotes.map(q => `
+        <div class="list-item quote-row" data-quote="${q.id}" style="cursor:pointer">
+          <div><div class="title">${esc(q.reference || 'Quote')}${q.title ? ' — ' + esc(q.title) : ''}</div>
+          <div class="meta">${money(q.total)} incl. VAT</div></div>
+          <span class="badge badge-${q.status === 'approved' || q.status === 'accepted' ? 'completed' : q.status === 'rejected' ? 'cancelled' : q.status === 'pending_approval' ? 'in_progress' : 'new'}">${QUOTE_STATUS_LABEL[q.status] || q.status}</span>
+        </div>`).join('')}</div>` : '<p class="muted">No quotes yet for this work order.</p>'}
+    `;
+
+    const newBtn = document.getElementById('newQuoteBtn');
+    if (newBtn) newBtn.addEventListener('click', () => openQuoteEditor(wo, null, isAdmin));
+    el.querySelectorAll('.quote-row').forEach(row =>
+      row.addEventListener('click', async () => {
+        const full = (await API.get(`/api/quotes/${row.dataset.quote}`)).quote;
+        openQuoteEditor(wo, full, isAdmin);
+      })
+    );
+  }
+
+  async function openQuoteEditor(wo, quote, isAdmin) {
+    // Pull the rate catalog for quick-add.
+    let rateItems = [];
+    try { rateItems = (await API.get('/api/rate-items')).rate_items; } catch (e) {}
+
+    const items = quote && quote.items ? quote.items.map(i => ({ ...i })) : [];
+    const readOnly = quote && ['approved', 'sent', 'accepted'].includes(quote.status);
+
+    function lineRow(it, idx) {
+      return `<tr data-idx="${idx}">
+        <td><input class="qi-name" value="${esc(it.name || '')}" ${readOnly ? 'disabled' : ''} style="width:100%"></td>
+        <td><select class="qi-kind" ${readOnly ? 'disabled' : ''}><option value="material" ${it.kind !== 'labour' ? 'selected' : ''}>Material</option><option value="labour" ${it.kind === 'labour' ? 'selected' : ''}>Labour</option></select></td>
+        <td><input class="qi-qty" type="number" step="0.01" value="${it.quantity != null ? it.quantity : 1}" ${readOnly ? 'disabled' : ''} style="width:70px"></td>
+        <td><input class="qi-price" type="number" step="0.01" value="${it.unit_price != null ? it.unit_price : 0}" ${readOnly ? 'disabled' : ''} style="width:90px"></td>
+        <td class="qi-total">${money((Number(it.quantity)||0)*(Number(it.unit_price)||0))}</td>
+        ${readOnly ? '' : '<td><button type="button" class="btn btn-sm btn-danger qi-del">×</button></td>'}
+      </tr>`;
+    }
+
+    const teamForApproval = (await API.get('/api/users')).users.filter(x => ['admin','operational'].includes(x.role) && x.active !== 0);
+
+    openModal(quote ? `${quote.reference} — ${QUOTE_STATUS_LABEL[quote.status]}` : 'Create quote', `
+      <div class="field"><label>Quote title</label><input id="quoteTitle" value="${quote ? esc(quote.title || '') : esc('Quote for ' + wo.reference)}" ${readOnly ? 'disabled' : ''}></div>
+      ${!readOnly ? `<div class="field"><label>Quick-add from rate catalog</label>
+        <select id="ratePicker"><option value="">Choose a saved item…</option>
+          ${rateItems.map(r => `<option value="${r.id}" data-name="${esc(r.name)}" data-kind="${r.kind}" data-unit="${esc(r.unit||'')}" data-price="${r.unit_price}">${esc(r.name)} — ${money(r.unit_price)}${r.unit ? '/'+esc(r.unit) : ''} (${r.kind})</option>`).join('')}
+        </select>
+        <p class="muted" style="font-size:.75em">Manage this list in the <a href="#/rate-catalog">Rate Catalog</a> tab.</p>
+      </div>` : ''}
+      <table class="simple" id="quoteItemsTable" style="font-size:.85em">
+        <thead><tr><th>Item</th><th>Type</th><th>Qty</th><th>Unit price</th><th>Total</th>${readOnly ? '' : '<th></th>'}</tr></thead>
+        <tbody id="quoteItemsBody">${items.map((it,i)=>lineRow(it,i)).join('')}</tbody>
+      </table>
+      ${readOnly ? '' : '<button type="button" class="btn btn-sm mt8" id="addLineBtn">+ Add line</button>'}
+      <hr class="sep">
+      <div class="flex-between"><strong>VAT rate (%)</strong><input id="quoteVat" type="number" step="0.1" value="${quote ? quote.vat_rate : 15}" ${readOnly ? 'disabled' : ''} style="width:70px"></div>
+      <div class="flex-between mt8"><span>Subtotal</span><span id="quoteSubtotal">${money(quote ? quote.subtotal : 0)}</span></div>
+      <div class="flex-between"><span>VAT</span><span id="quoteVatAmount">${money(quote ? quote.vat_amount : 0)}</span></div>
+      <div class="flex-between"><strong>Total</strong><strong id="quoteTotal">${money(quote ? quote.total : 0)}</strong></div>
+      <div class="field mt8"><label>Notes</label><textarea id="quoteNotes" ${readOnly ? 'disabled' : ''}>${quote ? esc(quote.notes || '') : ''}</textarea></div>
+
+      ${quote && quote.status === 'pending_approval' ? `<div class="card" style="background:var(--brand-light)"><p style="margin:0">⏳ Awaiting approval from <strong>${esc(quote.approver_name || 'someone')}</strong>. They're reminded hourly until they respond.</p></div>` : ''}
+      ${quote && quote.status === 'approved' ? `<div class="card" style="background:var(--success-light)"><p style="margin:0">✅ Approved. This quote is locked.</p></div>` : ''}
+
+      <div class="modal-actions" style="flex-wrap:wrap;gap:8px">
+        <button type="button" class="btn" data-close-modal>Close</button>
+        ${!readOnly ? `<button type="button" class="btn btn-primary" id="saveQuoteBtn">${quote ? 'Save changes' : 'Create quote'}</button>` : ''}
+        ${quote && !readOnly && quote.status !== 'pending_approval' ? `
+          <select id="approverSelect" style="max-width:160px"><option value="">Tag approver…</option>${teamForApproval.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join('')}</select>
+          <button type="button" class="btn btn-primary" id="requestApprovalBtn">Send for approval</button>` : ''}
+        ${quote && quote.status === 'pending_approval' && (isAdmin || quote.approver_id === App.state.user.id) ? `
+          <button type="button" class="btn btn-primary" id="approveQuoteBtn">✅ Approve</button>
+          <button type="button" class="btn btn-danger" id="rejectQuoteBtn">Send back</button>` : ''}
+        ${quote && !readOnly ? `<button type="button" class="btn btn-danger" id="deleteQuoteBtn">Delete</button>` : ''}
+      </div>
+    `, (body) => {
+      body.querySelector('[data-close-modal]').addEventListener('click', closeModal);
+
+      function collectItems() {
+        return Array.from(body.querySelectorAll('#quoteItemsBody tr')).map(tr => ({
+          name: tr.querySelector('.qi-name').value,
+          kind: tr.querySelector('.qi-kind').value,
+          quantity: parseFloat(tr.querySelector('.qi-qty').value) || 0,
+          unit_price: parseFloat(tr.querySelector('.qi-price').value) || 0,
+        }));
+      }
+      function recalcUI() {
+        let sub = 0;
+        body.querySelectorAll('#quoteItemsBody tr').forEach(tr => {
+          const q = parseFloat(tr.querySelector('.qi-qty').value) || 0;
+          const p = parseFloat(tr.querySelector('.qi-price').value) || 0;
+          const t = q * p; sub += t;
+          tr.querySelector('.qi-total').textContent = money(t);
+        });
+        const vat = parseFloat(body.querySelector('#quoteVat').value) || 0;
+        const vatAmt = sub * vat / 100;
+        body.querySelector('#quoteSubtotal').textContent = money(sub);
+        body.querySelector('#quoteVatAmount').textContent = money(vatAmt);
+        body.querySelector('#quoteTotal').textContent = money(sub + vatAmt);
+      }
+      function wireRow(tr) {
+        tr.querySelectorAll('input,select').forEach(inp => inp.addEventListener('input', recalcUI));
+        const del = tr.querySelector('.qi-del');
+        if (del) del.addEventListener('click', () => { tr.remove(); recalcUI(); });
+      }
+      body.querySelectorAll('#quoteItemsBody tr').forEach(wireRow);
+
+      const addLineBtn = body.querySelector('#addLineBtn');
+      if (addLineBtn) addLineBtn.addEventListener('click', () => {
+        const tbody = body.querySelector('#quoteItemsBody');
+        const idx = tbody.children.length;
+        tbody.insertAdjacentHTML('beforeend', lineRow({ kind: 'material', quantity: 1, unit_price: 0 }, idx));
+        wireRow(tbody.lastElementChild);
+        recalcUI();
+      });
+
+      const picker = body.querySelector('#ratePicker');
+      if (picker) picker.addEventListener('change', () => {
+        const opt = picker.selectedOptions[0];
+        if (!opt || !opt.value) return;
+        const tbody = body.querySelector('#quoteItemsBody');
+        tbody.insertAdjacentHTML('beforeend', lineRow({
+          name: opt.dataset.name, kind: opt.dataset.kind, unit: opt.dataset.unit,
+          quantity: 1, unit_price: parseFloat(opt.dataset.price) || 0
+        }, tbody.children.length));
+        wireRow(tbody.lastElementChild);
+        recalcUI();
+        picker.value = '';
+      });
+
+      const vatInput = body.querySelector('#quoteVat');
+      if (vatInput) vatInput.addEventListener('input', recalcUI);
+
+      const saveBtn = body.querySelector('#saveQuoteBtn');
+      if (saveBtn) saveBtn.addEventListener('click', async () => {
+        const payload = {
+          title: body.querySelector('#quoteTitle').value,
+          notes: body.querySelector('#quoteNotes').value,
+          vat_rate: parseFloat(body.querySelector('#quoteVat').value) || 15,
+          items: collectItems(),
+        };
+        try {
+          if (quote) await API.put(`/api/quotes/${quote.id}`, payload);
+          else await API.post(`/api/work-orders/${wo.id}/quotes`, payload);
+          closeModal(); toast('Quote saved', 'success'); App.render();
+        } catch (e) { toast(e.message, 'error'); }
+      });
+
+      const reqBtn = body.querySelector('#requestApprovalBtn');
+      if (reqBtn) reqBtn.addEventListener('click', async () => {
+        const approverId = body.querySelector('#approverSelect').value;
+        if (!approverId) return toast('Pick an approver to tag', 'error');
+        try {
+          // Save any edits first, then request approval.
+          await API.put(`/api/quotes/${quote.id}`, {
+            title: body.querySelector('#quoteTitle').value,
+            notes: body.querySelector('#quoteNotes').value,
+            vat_rate: parseFloat(body.querySelector('#quoteVat').value) || 15,
+            items: collectItems(),
+          });
+          await API.post(`/api/quotes/${quote.id}/request-approval`, { approver_id: approverId });
+          closeModal(); toast('Sent for approval — they’ll be reminded hourly', 'success'); App.render();
+        } catch (e) { toast(e.message, 'error'); }
+      });
+
+      const approveBtn = body.querySelector('#approveQuoteBtn');
+      if (approveBtn) approveBtn.addEventListener('click', async () => {
+        try { await API.post(`/api/quotes/${quote.id}/approve`, {}); closeModal(); toast('Quote approved', 'success'); App.render(); }
+        catch (e) { toast(e.message, 'error'); }
+      });
+      const rejectBtn = body.querySelector('#rejectQuoteBtn');
+      if (rejectBtn) rejectBtn.addEventListener('click', async () => {
+        const reason = prompt('Optional: what needs changing?') || '';
+        try { await API.post(`/api/quotes/${quote.id}/reject`, { reason }); closeModal(); toast('Sent back for changes', 'success'); App.render(); }
+        catch (e) { toast(e.message, 'error'); }
+      });
+      const delBtn = body.querySelector('#deleteQuoteBtn');
+      if (delBtn) delBtn.addEventListener('click', async () => {
+        if (!confirm('Delete this quote?')) return;
+        try { await API.del(`/api/quotes/${quote.id}`); closeModal(); toast('Quote deleted', 'success'); App.render(); }
+        catch (e) { toast(e.message, 'error'); }
+      });
+    });
+  }
+
   function renderJobCard(el, wo, card, isStaff) {
     if (!card) {
       el.innerHTML = `

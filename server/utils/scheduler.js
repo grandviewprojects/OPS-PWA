@@ -16,6 +16,11 @@
 const { db } = require('../db');
 const { notifyUser } = require('./notify');
 
+// Pulled in from the quotes route so the hourly approval nudge lives with the
+// rest of the quote logic but still runs on the shared scheduler tick.
+let runQuoteApprovalNudgeCheck = () => {};
+try { runQuoteApprovalNudgeCheck = require('../routes/quotes').runQuoteApprovalNudgeCheck; } catch (e) { /* route not loaded yet */ }
+
 function getSetting(key, fallback) {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
   return (row && row.value) || fallback;
@@ -109,15 +114,51 @@ function runDailySummaryCheck() {
 }
 
 let intervalHandle = null;
+
+// ---------------- 3. "Quote still needs sending" reminder (ops + admin) ----------------
+// Work orders sitting in inspection_submitted (report in, quote not sent) are
+// the ones that need a quote. Once per day per work order, remind every active
+// admin + operational user so a ready-to-quote job doesn't get forgotten.
+function runQuoteNeedsSendingCheck() {
+  const woNeedingQuote = db.prepare(
+    "SELECT * FROM work_orders WHERE status = 'inspection_submitted'"
+  ).all();
+  if (!woNeedingQuote.length) return;
+
+  const staff = db.prepare("SELECT id FROM users WHERE active = 1 AND role IN ('admin','operational')").all();
+  if (!staff.length) return;
+
+  const today = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD
+  woNeedingQuote.forEach((wo) => {
+    // Throttle to once per day per work order using a marker in the activity log.
+    const marker = `quote-reminder:${today}`;
+    const already = db.prepare(
+      'SELECT 1 FROM work_order_activity WHERE work_order_id = ? AND message = ? LIMIT 1'
+    ).get(wo.id, marker);
+    if (already) return;
+
+    const now = new Date().toISOString();
+    // record marker (uses the same activity table, hidden-ish system message)
+    db.prepare('INSERT INTO work_order_activity (id,work_order_id,user_id,message,created_at) VALUES (?,?,?,?,?)')
+      .run(require('../db').uuid(), wo.id, 'system', marker, now);
+
+    staff.forEach((s) => {
+      notifyUser(s.id, 'quote_needs_sending', `Quote still needs sending: ${wo.reference} — ${wo.title}`, `#/work-orders/${wo.id}`);
+    });
+  });
+}
+
 function startScheduler() {
   if (intervalHandle) return; // already running
   const tick = () => {
     try { runHourlyReminderCheck(); } catch (e) { console.error('Hourly reminder check failed:', e.message); }
     try { runDailySummaryCheck(); } catch (e) { console.error('Daily summary check failed:', e.message); }
+    try { runQuoteNeedsSendingCheck(); } catch (e) { console.error('Quote-needs-sending check failed:', e.message); }
+    try { runQuoteApprovalNudgeCheck(); } catch (e) { console.error('Quote approval nudge check failed:', e.message); }
   };
   tick(); // run once immediately on boot too
   intervalHandle = setInterval(tick, 60 * 1000);
   console.log('Notification scheduler started (checks every minute).');
 }
 
-module.exports = { startScheduler, runHourlyReminderCheck, runDailySummaryCheck };
+module.exports = { startScheduler, runHourlyReminderCheck, runDailySummaryCheck, runQuoteNeedsSendingCheck };

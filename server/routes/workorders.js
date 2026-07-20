@@ -8,7 +8,7 @@ const { notifyUser } = require('../utils/notify');
 const router = express.Router();
 router.use(authRequired);
 
-const VALID_STATUSES = ['new', 'assigned', 'in_progress', 'inspection_submitted', 'quote_sent', 'completed', 'cancelled'];
+const VALID_STATUSES = ['new', 'assigned', 'in_progress', 'inspection_submitted', 'quote_sent', 'quote_accepted', 'completed', 'cancelled'];
 
 function nextReference() {
   const row = db.prepare(`SELECT reference FROM work_orders ORDER BY created_at DESC LIMIT 1`).get();
@@ -140,6 +140,10 @@ router.put('/:id', (req, res) => {
     db.prepare('UPDATE work_orders SET quote_sent_at = ? WHERE id = ?').run(now, req.params.id);
     logActivity(req.params.id, req.user.id, `Quote marked as sent by ${req.user.name} — SLA timer stopped`);
   }
+  if (updates.status === 'quote_accepted') {
+    db.prepare('UPDATE work_orders SET quote_accepted_at = ? WHERE id = ?').run(now, req.params.id);
+    logActivity(req.params.id, req.user.id, `Quote marked as accepted by the client (recorded by ${req.user.name})`);
+  }
   if (updates.status === 'completed') {
     db.prepare('UPDATE work_orders SET completed_at = ? WHERE id = ?').run(now, req.params.id);
     logActivity(req.params.id, req.user.id, `Work order marked completed by ${req.user.name}`);
@@ -168,6 +172,25 @@ router.put('/:id', (req, res) => {
 
 router.get('/:id/activity', (req, res) => {
   res.json({ activity: db.prepare('SELECT * FROM work_order_activity WHERE work_order_id = ? ORDER BY created_at DESC').all(req.params.id) });
+});
+
+// Add a note / comment to a work order. Any authenticated staff member, or the
+// onsite user the order is assigned to, may add one. Adding a note stamps
+// last_note_at, which the dashboard uses to clear "Needs attention" for 2 days.
+router.post('/:id/notes', (req, res) => {
+  const wo = db.prepare('SELECT * FROM work_orders WHERE id = ?').get(req.params.id);
+  if (!wo) return res.status(404).json({ error: 'Not found' });
+  const isStaff = req.user.role === 'admin' || req.user.role === 'operational';
+  if (!isStaff && wo.assigned_to !== req.user.id) return res.status(403).json({ error: 'Not permitted' });
+
+  const message = (req.body && req.body.message ? String(req.body.message) : '').trim();
+  if (!message) return res.status(400).json({ error: 'message is required' });
+
+  const now = new Date().toISOString();
+  logActivity(req.params.id, req.user.id, `${req.user.name}: ${message}`);
+  db.prepare('UPDATE work_orders SET last_note_at = ?, updated_at = ? WHERE id = ?').run(now, now, req.params.id);
+
+  res.status(201).json({ ok: true, activity: db.prepare('SELECT * FROM work_order_activity WHERE work_order_id = ? ORDER BY created_at DESC').all(req.params.id) });
 });
 
 // Permanently delete a work order — admin only. Cleans up calendar events,

@@ -40,17 +40,27 @@
     view.innerHTML = `
       <div class="section-title">
         <h2>Tasks</h2>
-        <button class="btn btn-primary" id="newTaskBtn">+ ${isAdmin ? 'Delegate task' : 'New task'}</button>
+        <div class="flex" style="gap:8px">
+          <select id="taskSort" class="btn btn-sm" style="padding:6px 10px">
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+            <option value="due">By deadline</option>
+          </select>
+          <button class="btn btn-primary" id="newTaskBtn">+ ${isAdmin ? 'Delegate task' : 'New task'}</button>
+        </div>
       </div>
       <div class="card" id="taskList"><div class="flex"><div class="spinner"></div> Loading…</div></div>
     `;
 
+    let currentSort = 'newest';
     async function load() {
-      const { tasks } = await API.get('/api/tasks');
+      const { tasks } = await API.get('/api/tasks?sort=' + currentSort);
       const list = document.getElementById('taskList');
       list.innerHTML = tasks.length ? tasks.map(taskRow).join('') : `<div class="empty-state">No tasks ${isAdmin ? 'yet' : 'assigned to you yet'}.</div>`;
       list.querySelectorAll('[data-task]').forEach((el) => el.addEventListener('click', () => openTaskDetail(el.dataset.task)));
     }
+
+    document.getElementById('taskSort').addEventListener('change', (e) => { currentSort = e.target.value; load(); });
 
     function openNewTaskForm() {
       openModal(isAdmin ? 'Delegate a Task' : 'New Task', `
@@ -95,6 +105,8 @@
         </table>
         ${timer ? `<p><span class="sla-chip ${timer.cls}">${timer.label}</span></p>` : ''}
         ${canManage ? `
+          <div class="field"><label>Title</label><input id="taskTitleInput" value="${esc(task.title)}"></div>
+          <div class="field"><label>Description</label><textarea id="taskDescInput">${esc(task.description || '')}</textarea></div>
           <div class="form-row">
             <div class="field"><label>Status</label><select id="taskStatusSelect">
               ${STATUS_FLOW.map((s) => `<option value="${s}" ${s === task.status ? 'selected' : ''}>${statusLabel(s)}</option>`).join('')}
@@ -112,8 +124,13 @@
         if (saveBtn) saveBtn.addEventListener('click', async () => {
           const status = body.querySelector('#taskStatusSelect').value;
           const dueRaw = body.querySelector('#taskDueInput').value;
+          const titleEl = body.querySelector('#taskTitleInput');
+          const descEl = body.querySelector('#taskDescInput');
+          const payload = { status, due_at: dueRaw ? new Date(dueRaw).toISOString() : null };
+          if (titleEl && titleEl.value.trim()) payload.title = titleEl.value.trim();
+          if (descEl) payload.description = descEl.value;
           try {
-            await API.put(`/api/tasks/${taskId}`, { status, due_at: dueRaw ? new Date(dueRaw).toISOString() : null });
+            await API.put(`/api/tasks/${taskId}`, payload);
             closeModal(); toast('Task updated', 'success'); load();
           } catch (err) { toast(err.message, 'error'); }
         });

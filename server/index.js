@@ -18,6 +18,8 @@ const aiRoutes = require('./routes/ai');
 const reportsRoutes = require('./routes/reports');
 const tasksRoutes = require('./routes/tasks');
 const leadsRoutes = require('./routes/leads');
+const rateItemsRoutes = require('./routes/rateitems');
+const quotesRoutes = require('./routes/quotes');
 const { photosDir, logoDir } = require('./paths');
 
 const app = express();
@@ -48,6 +50,9 @@ app.use('/api/ai', aiRoutes);
 app.use('/api/reports', reportsRoutes);
 app.use('/api/tasks', tasksRoutes);
 app.use('/api/leads', leadsRoutes);
+app.use('/api/rate-items', rateItemsRoutes);
+app.use('/api/work-orders', quotesRoutes.woRouter);  // /api/work-orders/:woId/quotes
+app.use('/api/quotes', quotesRoutes.quoteRouter);
 
 app.get('/api/health', (req, res) => res.json({ ok: true, time: new Date().toISOString() }));
 

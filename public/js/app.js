@@ -75,10 +75,24 @@ const App = (() => {
   function route(pattern, handler) { routes.push({ pattern, handler }); }
   function navigate(hash) { location.hash = hash; }
 
+  // Track the previous "list" location so detail pages can offer a Back link
+  // that returns where the user actually came from (e.g. dashboard vs work
+  // orders list), rather than a hardcoded destination.
+  let previousHash = '/dashboard';
+  let currentHash = '/dashboard';
+  function backTarget(fallback) {
+    // Only treat it as a valid back target if it isn't the same detail page.
+    if (previousHash && previousHash !== currentHash) return previousHash;
+    return fallback || '/dashboard';
+  }
+
   async function render() {
     const hash = location.hash.replace(/^#/, '') || '/dashboard';
     const [pathPart] = hash.split('?');
     const segments = pathPart.split('/').filter(Boolean);
+
+    // Maintain previous/current for smart back navigation.
+    if (pathPart !== currentHash) { previousHash = currentHash; currentHash = pathPart; }
 
     if (!state.user) {
       renderLogin();
@@ -266,6 +280,7 @@ const App = (() => {
       if (u.role === 'admin' || u.role === 'operational') tabs.push({ href: '#/team', label: 'Team', match: '/team' });
       if (u.role === 'admin' || u.role === 'operational') tabs.push({ href: '#/reports', label: 'Reports', match: '/reports' });
       if (u.role === 'admin' || u.role === 'operational') tabs.push({ href: '#/tasks', label: 'Tasks', match: '/tasks' });
+      if (u.role === 'admin' || u.role === 'operational') tabs.push({ href: '#/rate-catalog', label: 'Rate Catalog', match: '/rate-catalog' });
     }
     if (u.role === 'admin') tabs.push({ href: '#/leads', label: 'Leads', match: '/leads' });
     if (u.role === 'admin') tabs.push({ href: '#/settings', label: 'Settings', match: '/settings' });
@@ -362,7 +377,7 @@ const App = (() => {
     }
 
     // ── Admin / Operational: pipeline dashboard ──────────────────────────────
-    const { pipeline, jobs_in_progress, jobs_completed, overdue_quotes, unassigned, stalled_quotes, total_active } = data;
+    const { pipeline, jobs_in_progress, jobs_completed, jobs_accepted, overdue_quotes, unassigned, stalled_quotes, total_active } = data;
 
     const STAGES = [
       { key: 'new',                  label: 'New',               emoji: '📥', color: '#6c757d', next: 'Assign someone' },
@@ -370,6 +385,7 @@ const App = (() => {
       { key: 'in_progress',          label: 'In Progress',        emoji: '🔧', color: '#fd7e14', next: '' },
       { key: 'inspection_submitted', label: 'Quote Needed',       emoji: '💰', color: '#dc3545', next: 'Send quote to client' },
       { key: 'quote_sent',           label: 'Quote Sent',         emoji: '⏳', color: '#6f42c1', next: 'Awaiting client approval' },
+      { key: 'quote_accepted',       label: 'Quote Accepted',     emoji: '🤝', color: '#20c997', next: 'Schedule the work' },
       { key: 'completed',            label: 'Completed',          emoji: '✅', color: '#198754', next: '' },
     ];
 
@@ -396,6 +412,7 @@ const App = (() => {
           ${wo.assignee_name ? `<div class="meta">👤 ${esc(wo.assignee_name)}</div>` : '<div class="meta" style="color:var(--danger)">⚠️ Unassigned</div>'}
         </div>
         <div class="text-right" style="flex-shrink:0;margin-left:12px">
+          ${wo.scheduled_at ? `<div style="color:var(--brand);font-size:.78em;font-weight:600">📅 ${fmtDateTime(wo.scheduled_at)}</div>` : ''}
           ${daysStr ? `<div style="${urgency};font-size:.8em">${daysStr} at this stage</div>` : ''}
           ${isOverdue ? `<div style="color:var(--danger);font-size:.75em;font-weight:600">QUOTE OVERDUE</div>` : ''}
           ${isStalled ? `<div style="color:#fd7e14;font-size:.75em;font-weight:600">NO RESPONSE YET</div>` : ''}
@@ -468,6 +485,13 @@ const App = (() => {
           : '<div class="empty-state" style="padding:8px 0;font-size:.85em">No jobs currently in progress.</div>'}
       </div>
 
+      <div class="section-title mt20"><h2>🤝 Quote accepted — ready to schedule (${(jobs_accepted||[]).length})</h2></div>
+      <div class="card" id="acceptedList" style="padding:8px">
+        ${(jobs_accepted && jobs_accepted.length)
+          ? jobs_accepted.map(wo => pipelineWoRow(wo)).join('')
+          : '<div class="empty-state" style="padding:8px 0;font-size:.85em">No accepted quotes waiting to be scheduled.</div>'}
+      </div>
+
       <div class="section-title mt20"><h2>✅ Jobs completed (${jobs_completed.length})</h2></div>
       <div class="card" id="completedList" style="padding:8px">
         ${jobs_completed.length
@@ -476,8 +500,8 @@ const App = (() => {
       </div>
     `;
 
-    // Quote pipeline stages only (in_progress and completed have their own sections above)
-    const QUOTE_STAGES = STAGES.filter(s => !['in_progress', 'completed'].includes(s.key));
+    // Quote pipeline stages only (in_progress, quote_accepted and completed have their own sections)
+    const QUOTE_STAGES = STAGES.filter(s => !['in_progress', 'quote_accepted', 'completed'].includes(s.key));
     const stagesEl = document.getElementById('pipelineStages');
     QUOTE_STAGES.forEach(st => {
       const bucket = pipeline.find(p => p.key === st.key) || { count: 0, items: [] };
@@ -573,5 +597,5 @@ const App = (() => {
     render();
   });
 
-  return { state, route, navigate, render, toast, esc, initials, fmtDate, fmtDateTime, statusLabel, slaInfo, openModal, closeModal, logout, loadNotifications, NOTIF_CATEGORIES, onLogout };
+  return { state, route, navigate, backTarget, render, toast, esc, initials, fmtDate, fmtDateTime, statusLabel, slaInfo, openModal, closeModal, logout, loadNotifications, NOTIF_CATEGORIES, onLogout };
 })();

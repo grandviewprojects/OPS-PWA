@@ -12,8 +12,16 @@ const PIPELINE_STAGES = [
   { key: 'in_progress',          label: 'In Progress',        hint: 'Work actively underway',                 color: '#fd7e14' },
   { key: 'inspection_submitted', label: 'Quote Needed',       hint: 'Report in — quote not yet sent',         color: '#dc3545' },
   { key: 'quote_sent',           label: 'Quote Sent',         hint: 'Quote sent — awaiting client approval',  color: '#6f42c1' },
+  { key: 'quote_accepted',       label: 'Quote Accepted',     hint: 'Client accepted — ready to schedule work', color: '#20c997' },
   { key: 'completed',            label: 'Completed',          hint: 'Work done',                              color: '#198754' },
 ];
+
+// A work order is muted from "Needs attention" for 2 days after the last note.
+const ATTENTION_MUTE_MS = 2 * 24 * 60 * 60 * 1000;
+function recentlyNoted(wo) {
+  if (!wo.last_note_at) return false;
+  return (Date.now() - new Date(wo.last_note_at).getTime()) < ATTENTION_MUTE_MS;
+}
 
 function daysInStage(wo) {
   const now = Date.now();
@@ -73,16 +81,20 @@ router.get('/', (req, res) => {
   // Dedicated sections
   const jobsInProgress = allActive.filter(wo => wo.status === 'in_progress');
   const jobsCompleted  = allActive.filter(wo => wo.status === 'completed');
+  const jobsAccepted   = allActive.filter(wo => wo.status === 'quote_accepted');
 
-  // Needs-attention slices
+  // Needs-attention slices. Each is suppressed if a note was added in the last
+  // 2 days (recentlyNoted) — adding a note resets attention, and it returns
+  // automatically once the 2-day mute lapses.
   const overdueQuotes = allActive.filter(
-    wo => wo.status === 'inspection_submitted' && wo.quote_due_at && wo.quote_due_at < now
+    wo => wo.status === 'inspection_submitted' && wo.quote_due_at && wo.quote_due_at < now && !recentlyNoted(wo)
   );
   const unassigned = allActive.filter(
-    wo => !wo.assigned_to && !['completed', 'cancelled'].includes(wo.status)
+    wo => !wo.assigned_to && !['completed', 'cancelled', 'quote_accepted'].includes(wo.status) && !recentlyNoted(wo)
   );
   const stalledQuotes = allActive.filter(wo => {
     if (wo.status !== 'quote_sent' || !wo.quote_sent_at) return false;
+    if (recentlyNoted(wo)) return false;
     return (Date.now() - new Date(wo.quote_sent_at).getTime()) > 7 * 24 * 60 * 60 * 1000;
   });
 
@@ -91,6 +103,7 @@ router.get('/', (req, res) => {
     pipeline,
     jobs_in_progress: jobsInProgress,
     jobs_completed:   jobsCompleted,
+    jobs_accepted:    jobsAccepted,
     overdue_quotes:   overdueQuotes,
     unassigned,
     stalled_quotes:   stalledQuotes,

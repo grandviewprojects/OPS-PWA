@@ -259,6 +259,56 @@ CREATE TABLE IF NOT EXISTS lead_activity (
   message TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
+
+-- Rate catalog: reusable material & labour line items with unit prices.
+CREATE TABLE IF NOT EXISTS rate_items (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL DEFAULT 'material',   -- 'material' | 'labour'
+  name TEXT NOT NULL,
+  unit TEXT,                                -- e.g. 'each', 'bag', 'm', 'hour'
+  unit_price REAL NOT NULL DEFAULT 0,
+  notes TEXT,
+  active INTEGER NOT NULL DEFAULT 1,
+  created_by TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+-- Quotes attached to a work order.
+CREATE TABLE IF NOT EXISTS quotes (
+  id TEXT PRIMARY KEY,
+  work_order_id TEXT NOT NULL REFERENCES work_orders(id) ON DELETE CASCADE,
+  reference TEXT,
+  title TEXT,
+  notes TEXT,
+  status TEXT NOT NULL DEFAULT 'draft',     -- draft | pending_approval | approved | rejected | sent | accepted
+  subtotal REAL NOT NULL DEFAULT 0,
+  vat_rate REAL NOT NULL DEFAULT 15,
+  vat_amount REAL NOT NULL DEFAULT 0,
+  total REAL NOT NULL DEFAULT 0,
+  approver_id TEXT REFERENCES users(id),
+  approval_requested_at TEXT,
+  approved_at TEXT,
+  approved_by TEXT,
+  rejected_at TEXT,
+  last_approval_nudge_at TEXT,
+  created_by TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+-- Individual line items on a quote (snapshotted, so later rate changes don't alter sent quotes).
+CREATE TABLE IF NOT EXISTS quote_items (
+  id TEXT PRIMARY KEY,
+  quote_id TEXT NOT NULL REFERENCES quotes(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL DEFAULT 'material',
+  name TEXT NOT NULL,
+  unit TEXT,
+  quantity REAL NOT NULL DEFAULT 1,
+  unit_price REAL NOT NULL DEFAULT 0,
+  line_total REAL NOT NULL DEFAULT 0,
+  sort_order INTEGER NOT NULL DEFAULT 0
+);
 `);
 
 // ---- Seed default admin + settings on first run ----
@@ -294,6 +344,12 @@ function seed() {
   // (safe to run on every boot — silently no-ops once the column is there).
   try { db.exec('ALTER TABLE calendar_events ADD COLUMN reminder_sent INTEGER NOT NULL DEFAULT 0'); } catch (e) { /* already exists */ }
   try { db.exec('ALTER TABLE work_orders ADD COLUMN job_card_id TEXT'); } catch (e) { /* already exists */ }
+  // Timestamp of the most recent note/activity, used to reset "Needs attention" after 2 days.
+  try { db.exec('ALTER TABLE work_orders ADD COLUMN last_note_at TEXT'); } catch (e) { /* already exists */ }
+  // When a quote is accepted by the client.
+  try { db.exec('ALTER TABLE work_orders ADD COLUMN quote_accepted_at TEXT'); } catch (e) { /* already exists */ }
+  // Add 'quote_accepted' as a valid status is handled in the route layer (VALID_STATUSES).
+  try { db.exec("ALTER TABLE quotes ADD COLUMN last_approval_nudge_at TEXT"); } catch (e) { /* already exists */ }
 
   // Make sure every existing user has a notification_preferences row (new users
   // get one created at signup time; this backfills anyone created before this
