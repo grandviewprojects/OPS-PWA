@@ -515,7 +515,8 @@ menuBtn.addEventListener("click",()=>{const open=mnav.hidden;syncMenu();mnav.hid
 mnav.addEventListener("click",e=>{if(e.target.closest("a")){mnav.hidden=true;menuBtn.setAttribute("aria-expanded","false");hdr.classList.remove("open")}});
 
 let db=null, canEdit=false;
-let projects=[], clients=[], posts=[], settings={}, loaded={p:false,c:false,s:false};
+const SOC_DEFAULT={instagram:"https://www.instagram.com/grandviewprojects_/",facebook:"https://www.facebook.com/p/GrandView-Projects-61574715883769/"};
+let projects=[], clients=[], posts=[], settings={...SOC_DEFAULT}, loaded={p:false,c:false,s:false};
 let filter="All", sort="recent";
 const photoCache=new Map();
 
@@ -968,7 +969,7 @@ renderAll();
   if(!db){renderAll();return}
   db.collection("projects").onSnapshot(s=>{projects=s.docs.map(x=>({id:x.id,...x.data()}));loaded.p=true;renderAll()},()=>{loaded.p=true;renderAll()});
   db.collection("posts").onSnapshot(s=>{posts=s.docs.map(x=>({id:x.id,...x.data()}));loaded.s=true;renderPosts();renderPortal()},()=>{loaded.s=true;renderPosts()});
-  db.doc("site/settings").onSnapshot(s=>{settings=s.exists?(s.data()||{}):{};renderSocials();renderPortal()},()=>{});
+  db.doc("site/settings").onSnapshot(s=>{const d=s.exists?(s.data()||{}):{};settings={...SOC_DEFAULT};for(const k in d){if(d[k])settings[k]=d[k]}renderSocials();renderPortal()},()=>{});
   db.collection("clients").onSnapshot(s=>{clients=s.docs.map(x=>({id:x.id,...x.data()}));loaded.c=true;renderAll()},()=>{loaded.c=true;renderAll()});
 })();
 })();
