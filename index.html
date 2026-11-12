@@ -80,9 +80,15 @@ nav.links a:hover{color:var(--on-ink)}
 .ticker{position:relative;border-top:1px solid rgba(255,255,255,.14);overflow:hidden;white-space:nowrap;background:rgba(11,39,63,.55);backdrop-filter:blur(6px)}
 .tt{display:inline-flex;animation:tick 38s linear infinite}
 .tt span{display:inline-flex;align-items:center;font-size:15px;font-weight:600;padding:18px 0;color:#E8EDF2}
-.tt span::after{content:"";width:40px;height:10px;margin:0 24px;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 10'%3E%3Cpath d='M1 9C10 2 30 2 39 9C30 5 10 5 1 9Z' fill='%238C96A0'/%3E%3C/svg%3E") center/contain no-repeat}
+.tt span::after{content:"";width:6px;height:6px;border-radius:50%;background:#8C96A0;margin:0 28px}
 @keyframes tick{to{transform:translateX(-50%)}}
-.band{background:var(--ink);color:var(--on-ink)}
+.band{background:var(--ink);color:var(--on-ink);border-top:1px solid var(--ink-rule)}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);padding-top:36px;padding-bottom:40px}
+.stats>div{padding:0 20px;border-left:1px solid var(--ink-rule)}
+.stats>div:first-child{padding-left:0;border-left:0}
+.stats b{display:block;font-size:clamp(24px,3.4vw,42px);font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1.1}
+.stats span{font-size:13px;color:var(--on-ink-muted)}
+@media(max-width:600px){.stats{grid-template-columns:1fr;gap:18px}.stats>div{padding:0;border-left:0}}
 /* load + reveal motion */
 .js .rise i{transform:translateY(105%);transition:transform 1s cubic-bezier(.2,.8,.2,1)}
 .js .rise span:nth-child(2) i{transition-delay:.12s}
@@ -381,13 +387,11 @@ label.chk input{width:18px;height:18px}
   </div>
   <div class="ticker" aria-hidden="true"><div class="tt"><span>Commercial building</span><span>Industrial maintenance</span><span>Insurance repairs</span><span>Renovations</span><span>Roofing and ceilings</span><span>Property maintenance</span><span>Painting</span><span>Windows and glazing</span><span>Commercial building</span><span>Industrial maintenance</span><span>Insurance repairs</span><span>Renovations</span><span>Roofing and ceilings</span><span>Property maintenance</span><span>Painting</span><span>Windows and glazing</span></div></div>
 </section>
-<section class="band" id="band">
-<svg class="arc" viewBox="0 0 1000 40" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="arcg" x1="0" x2="1"><stop offset="0" stop-color="#5d6b79" stop-opacity=".2"/><stop offset=".5" stop-color="#C9D2DB"/><stop offset="1" stop-color="#5d6b79" stop-opacity=".2"/></linearGradient></defs><path d="M0 34C250 4 750 4 1000 34C750 14 250 14 0 34Z" fill="url(#arcg)"/></svg>
-<div class="hdim"><div class="wrap">
-  <div class="dim"><i></i><b id="sValue">Gqeberha to Jeffreys Bay</b><i></i></div>
-  <div class="cap"><span id="sLeft">Eastern Cape</span><span id="sRight">Residential, commercial and industrial</span></div>
-</div></div>
-</section>
+<section class="band" id="band" hidden><div class="wrap stats">
+  <div><b id="sValue">R 0</b><span>Value of work delivered</span></div>
+  <div><b id="sProjects">0</b><span>Projects completed</span></div>
+  <div><b id="sClients">0</b><span>Clients</span></div>
+</div></section>
 
 <section class="sec" id="services"><div class="wrap">
   <div class="sh rv"><div><h2>What we do</h2><p>One team for the build, the repair and the upkeep that follows.</p></div></div>
@@ -527,11 +531,11 @@ function renderStats(){
   if(!loaded.p)return;
   const total=projects.filter(p=>p.showValue!==false).reduce((a,p)=>a+(Number(p.value)||0),0);
   const names=new Set(clients.map(c=>norm(c.name)));projects.forEach(p=>p.client&&names.add(norm(p.client)));names.delete("");
-  if(total>0){
-    const sv=$("#sValue");if(sv.dataset.v!=String(total)){sv.dataset.v=total;countTo(sv,total)}
-    $("#sLeft").textContent="Value of work delivered";
-    $("#sRight").textContent=`${projects.length} project${projects.length===1?"":"s"}${names.size?`, ${names.size} client${names.size===1?"":"s"}`:""}`;
-  }
+  $("#band").hidden=!(projects.length>0);
+  if(!projects.length)return;
+  const sv=$("#sValue");if(sv.dataset.v!=String(total)){sv.dataset.v=total;countTo(sv,total)}
+  $("#sProjects").textContent=projects.length;
+  $("#sClients").textContent=names.size||"—";
 }
 
 /* ---------- projects ---------- */
